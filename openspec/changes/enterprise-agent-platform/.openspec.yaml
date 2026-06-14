@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-06-14
+goal: Turn docs/start.md into an OpenSpec-backed requirement design for building
+  enterprise agents

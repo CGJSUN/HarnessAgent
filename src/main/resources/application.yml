@@ -1,0 +1,64 @@
+server:
+  port: 8080
+
+harness-agent:
+  default-agent-id: enterprise-assistant
+  default-provider: echo
+  state:
+    local-directory: .harness-agent/sessions
+  agents:
+    enterprise-assistant:
+      name: enterprise-assistant
+      system-prompt: 你是企业助手，回答要准确、克制，并遵守企业权限与工具边界。
+      model-provider: echo
+      model-name: echo-local
+      workspace: .harness-agent/workspaces/enterprise-assistant
+      workload-type: office
+      compaction: true
+      max-iters: 3
+  model-providers:
+    echo:
+      type: echo
+      model-name: echo-local
+    dashscope:
+      type: dashscope
+      model-name: qwen-plus
+      api-key-env: DASHSCOPE_API_KEY
+  production:
+    profile: development
+    replica-count: 1
+    state-store:
+      type: local-json
+      local-directory: .harness-agent/sessions
+      redis-uri: redis://localhost:6379/0
+      mysql-dsn: jdbc:mysql://localhost:3306/harness_agent
+    remote-filesystem:
+      root-uri: s3://harness-agent-workspaces
+    sandbox:
+      enabled: false
+      image: harness-agent-sandbox:latest
+      workspace-root: /workspace
+    snapshot-store:
+      type: none
+      uri: ""
+    observability:
+      enabled: true
+      service-name: harness-agent
+    budget:
+      request-limit: 1000
+      token-limit: 1000000
+    fallback:
+      retryable-status-codes:
+        - 429
+        - 500
+        - 502
+        - 503
+        - 504
+      providers:
+        dashscope:
+          - echo
+    timeouts:
+      model-timeout: 2m
+      stream-timeout: 5m
+      tool-timeout: 30s
+      sandbox-timeout: 10m
