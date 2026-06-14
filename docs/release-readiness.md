@@ -84,9 +84,25 @@ openspec validate enterprise-agent-platform
 mvn test
 ```
 
-如果 `mvn test` 报 `无效的标记: --release`，说明当前 Java 版本低于 17。先切换 JDK 17：
+如果 `mvn test` 报 `无效的标记: --release`、`class file version 61.0` 或 Spring Boot Maven 插件无法加载，说明当前 Java 版本低于 17。先切换 JDK 17，并确认 `mvn -version` 中的 Java version 也是 17：
 
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 export PATH="$JAVA_HOME/bin:$PATH"
+mvn -version
+```
+
+如果 macOS 没有把 Homebrew JDK 注册到 `java_home`，但已经安装 `openjdk@17`：
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+export PATH="$JAVA_HOME/bin:$PATH"
+mvn -version
+```
+
+后端启动 smoke test：
+
+```bash
+mvn -o -Dmaven.test.skip=true spring-boot:run
+curl -i http://localhost:8080/api/release/scenario
 ```

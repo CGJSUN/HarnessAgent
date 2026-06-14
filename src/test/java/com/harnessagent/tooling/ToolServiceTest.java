@@ -42,8 +42,9 @@ class ToolServiceTest {
         assertThat(audit.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
         assertThat(audit.sanitizedInput()).containsEntry("token", "[REDACTED]");
         assertThat(audit.sanitizedOutput()).containsEntry("email", "[REDACTED]");
-        assertThat((Map<?, ?>) audit.sanitizedOutput().get("request"))
-                .containsEntry("token", "[REDACTED]");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sanitizedRequest = (Map<String, Object>) audit.sanitizedOutput().get("request");
+        assertThat(sanitizedRequest).containsEntry("token", "[REDACTED]");
     }
 
     @Test

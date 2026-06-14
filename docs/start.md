@@ -81,17 +81,40 @@ java -version
 mvn -version
 ```
 
-如果 `mvn test` 报 `无效的标记: --release`，说明当前 shell 使用的是 Java 8，需要安装 JDK 17 并设置：
+如果 `mvn test` 或 `mvn spring-boot:run` 报 `无效的标记: --release`、`class file version 61.0` 或 Spring Boot Maven 插件无法加载，说明当前 shell 使用的是 Java 8。需要安装 JDK 17，并确认 `mvn -version` 里的 Java version 也是 17。
+
+macOS 已注册 JDK 17 时：
 
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 export PATH="$JAVA_HOME/bin:$PATH"
+mvn -version
+```
+
+如果 Homebrew 已安装 `openjdk@17`，但 `/usr/libexec/java_home -v 17` 找不到，可以使用 Homebrew 路径：
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+export PATH="$JAVA_HOME/bin:$PATH"
+mvn -version
 ```
 
 本地启动：
 
 ```bash
 mvn spring-boot:run
+```
+
+离线或只做后端启动 smoke test 时，可以跳过测试编译：
+
+```bash
+mvn -o -Dmaven.test.skip=true spring-boot:run
+```
+
+启动成功后验证：
+
+```bash
+curl -i http://localhost:8080/api/release/scenario
 ```
 
 默认端口是 `8080`。基础配置在 `src/main/resources/application.yml`。
