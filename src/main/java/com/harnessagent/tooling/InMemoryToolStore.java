@@ -7,9 +7,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 @Component
+@Profile("!production")
 public class InMemoryToolStore implements ToolStore {
 
     private final Map<String, ToolDefinition> tools = new ConcurrentHashMap<>();

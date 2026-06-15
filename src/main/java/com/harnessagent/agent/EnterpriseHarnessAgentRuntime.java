@@ -4,6 +4,7 @@ import com.harnessagent.config.HarnessAgentProperties;
 import com.harnessagent.model.ModelProviderRegistry;
 import com.harnessagent.production.RuntimeTelemetry;
 import com.harnessagent.production.RuntimeTimeoutGuard;
+import com.harnessagent.production.WorkspaceSnapshotService;
 import com.harnessagent.production.TelemetryEventType;
 import com.harnessagent.production.WorkspacePlan;
 import com.harnessagent.production.WorkspacePolicyService;
@@ -12,11 +13,11 @@ import com.harnessagent.session.MessageRole;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.Event;
 import io.agentscope.core.agent.EventType;
+import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.agent.StreamOptions;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.model.Model;
-import io.agentscope.core.session.SessionManager;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -33,6 +34,7 @@ public class EnterpriseHarnessAgentRuntime implements AgentRuntime {
     private final ModelProviderRegistry modelProviderRegistry;
     private final AgentSessionFactory sessionFactory;
     private final WorkspacePolicyService workspacePolicyService;
+    private final WorkspaceSnapshotService workspaceSnapshotService;
     private final RuntimeTimeoutGuard timeoutGuard;
     private final RuntimeTelemetry telemetry;
 
@@ -41,12 +43,14 @@ public class EnterpriseHarnessAgentRuntime implements AgentRuntime {
             ModelProviderRegistry modelProviderRegistry,
             AgentSessionFactory sessionFactory,
             WorkspacePolicyService workspacePolicyService,
+            WorkspaceSnapshotService workspaceSnapshotService,
             RuntimeTimeoutGuard timeoutGuard,
             RuntimeTelemetry telemetry) {
         this.properties = properties;
         this.modelProviderRegistry = modelProviderRegistry;
         this.sessionFactory = sessionFactory;
         this.workspacePolicyService = workspacePolicyService;
+        this.workspaceSnapshotService = workspaceSnapshotService;
         this.timeoutGuard = timeoutGuard;
         this.telemetry = telemetry;
     }
@@ -55,9 +59,8 @@ public class EnterpriseHarnessAgentRuntime implements AgentRuntime {
     public Mono<AgentReply> complete(AgentRunRequest request) {
         Instant startedAt = Instant.now();
         AgentExecution execution = createExecution(request);
-        execution.loadIfExists();
         Mono<AgentReply> work = execution.agent()
-                .call(toAgentScopeMessages(request.messages()))
+                .call(toAgentScopeMessages(request.messages()), execution.runtimeContext())
                 .map(message -> new AgentReply(message.getTextContent()))
                 .doOnSuccess(ignored -> execution.save());
         return timeoutGuard.guardModel(work)
@@ -69,7 +72,6 @@ public class EnterpriseHarnessAgentRuntime implements AgentRuntime {
     public Flux<AgentRuntimeEvent> stream(AgentRunRequest request) {
         Instant startedAt = Instant.now();
         AgentExecution execution = createExecution(request);
-        execution.loadIfExists();
         StreamOptions options = StreamOptions.builder()
                 .eventTypes(EventType.REASONING, EventType.TOOL_RESULT, EventType.SUMMARY)
                 .incremental(true)
@@ -77,7 +79,7 @@ public class EnterpriseHarnessAgentRuntime implements AgentRuntime {
         Flux<AgentRuntimeEvent> work = Flux.concat(
                         Flux.just(AgentRuntimeEvent.status("started")),
                         execution.agent()
-                                .stream(toAgentScopeMessages(request.messages()), options)
+                                .stream(toAgentScopeMessages(request.messages()), options, execution.runtimeContext())
                                 .map(this::toRuntimeEvent)
                                 .filter(event -> event.content() != null && !event.content().isBlank()))
                 .concatWithValues(AgentRuntimeEvent.done("completed"))
@@ -103,14 +105,22 @@ public class EnterpriseHarnessAgentRuntime implements AgentRuntime {
                 .name(firstNonBlank(agentDefinition.getName(), request.context().agentId()))
                 .systemPrompt(agentDefinition.getSystemPrompt())
                 .model(model)
+                .stateStore(sessionFactory.stateStore(request.context()))
+                .defaultSessionId(request.context().runtimeSessionId())
                 .workspace(Path.of(nullToEmpty(workspacePlan.location())))
                 .compactionEnabled(agentDefinition.isCompaction())
                 .maxIters(agentDefinition.getMaxIters())
                 .build();
         ReActAgent agent = harnessAgent.delegate();
-        SessionManager sessionManager = sessionFactory.create(request.context(), agent);
-        return new AgentExecution(agent, sessionManager, harnessAgent.workspace(),
-                harnessAgent.compactionEnabled());
+        RuntimeContext runtimeContext = sessionFactory.runtimeContext(request.context());
+        return new AgentExecution(
+                agent,
+                runtimeContext,
+                request.context(),
+                workspacePlan,
+                harnessAgent.workspace(),
+                harnessAgent.compactionEnabled(),
+                workspaceSnapshotService);
     }
 
     private AgentRuntimeEvent toRuntimeEvent(Event event) {
@@ -165,13 +175,16 @@ public class EnterpriseHarnessAgentRuntime implements AgentRuntime {
     }
 
     private record AgentExecution(
-            ReActAgent agent, SessionManager sessionManager, Path workspace, boolean compactionEnabled) {
-        void loadIfExists() {
-            sessionManager.loadIfExists();
-        }
-
+            ReActAgent agent,
+            RuntimeContext runtimeContext,
+            com.harnessagent.runtime.RuntimeContextScope context,
+            WorkspacePlan workspacePlan,
+            Path workspace,
+            boolean compactionEnabled,
+            WorkspaceSnapshotService workspaceSnapshotService) {
         void save() {
-            sessionManager.saveOrThrow();
+            agent.saveAgentState(runtimeContext);
+            workspaceSnapshotService.save(context, workspacePlan, workspace, "agent-runtime");
         }
     }
 }

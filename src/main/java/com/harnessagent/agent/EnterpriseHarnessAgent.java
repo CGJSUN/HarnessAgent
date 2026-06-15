@@ -1,8 +1,8 @@
 package com.harnessagent.agent;
 
 import io.agentscope.core.ReActAgent;
-import io.agentscope.core.memory.InMemoryMemory;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.state.AgentStateStore;
 import java.nio.file.Path;
 
 public final class EnterpriseHarnessAgent {
@@ -16,7 +16,8 @@ public final class EnterpriseHarnessAgent {
                 .name(builder.name)
                 .sysPrompt(builder.systemPrompt)
                 .model(builder.model)
-                .memory(new InMemoryMemory())
+                .stateStore(builder.stateStore)
+                .defaultSessionId(builder.defaultSessionId)
                 .maxIters(builder.maxIters)
                 .build();
         this.workspace = builder.workspace;
@@ -43,6 +44,8 @@ public final class EnterpriseHarnessAgent {
         private String name;
         private String systemPrompt;
         private Model model;
+        private AgentStateStore stateStore;
+        private String defaultSessionId = "default";
         private Path workspace = Path.of(".harness-agent/workspaces/default");
         private boolean compactionEnabled = true;
         private int maxIters = 3;
@@ -65,6 +68,18 @@ public final class EnterpriseHarnessAgent {
             return this;
         }
 
+        public Builder stateStore(AgentStateStore stateStore) {
+            this.stateStore = stateStore;
+            return this;
+        }
+
+        public Builder defaultSessionId(String defaultSessionId) {
+            this.defaultSessionId = defaultSessionId == null || defaultSessionId.isBlank()
+                    ? this.defaultSessionId
+                    : defaultSessionId.trim();
+            return this;
+        }
+
         public Builder workspace(Path workspace) {
             this.workspace = workspace == null ? this.workspace : workspace;
             return this;
@@ -83,6 +98,9 @@ public final class EnterpriseHarnessAgent {
         public EnterpriseHarnessAgent build() {
             if (model == null) {
                 throw new IllegalArgumentException("model is required");
+            }
+            if (stateStore == null) {
+                throw new IllegalArgumentException("stateStore is required");
             }
             return new EnterpriseHarnessAgent(this);
         }

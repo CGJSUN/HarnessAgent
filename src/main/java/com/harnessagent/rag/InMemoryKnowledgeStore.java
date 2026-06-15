@@ -6,9 +6,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 @Repository
+@Profile("!production")
 public class InMemoryKnowledgeStore implements KnowledgeStore {
 
     private final Map<String, KnowledgeSource> sources = new ConcurrentHashMap<>();

@@ -106,3 +106,42 @@ mvn -version
 mvn -o -Dmaven.test.skip=true spring-boot:run
 curl -i http://localhost:8080/api/release/scenario
 ```
+
+Durable persistence 发布前检查：
+
+```bash
+curl -s http://localhost:8080/api/release/phase-gates
+```
+
+检查返回中 `Production Runtime` gate：
+
+- `status` 必须为 `PASSED`。
+- `checks` 应包含 `distributed-state`、`workspace`、`telemetry`、`budget`、`timeout`、`snapshot`。
+- `failureReasons` 必须为空。
+
+生产 profile 必填配置：
+
+- `HARNESS_AGENT_MYSQL_DSN`
+- `HARNESS_AGENT_DB_USERNAME`
+- `HARNESS_AGENT_DB_PASSWORD`
+- `HARNESS_AGENT_DURABLE_STATE_WIRED=true`
+- `HARNESS_AGENT_DURABLE_TELEMETRY_ENABLED=true` 或 `HARNESS_AGENT_OTEL_ENABLED=true`
+
+如果启用 Redis-backed AgentScope state 或 budget counter，还需要：
+
+- `HARNESS_AGENT_REDIS_URI`
+- `harness-agent.production.state-store.type=redis` 或 `harness-agent.production.durable-stores.budget-counter=redis`
+
+如果启用 sandbox/code workload，还需要：
+
+- `HARNESS_AGENT_SANDBOX_ENABLED=true`
+- `HARNESS_AGENT_SNAPSHOT_STORE_TYPE=jdbc`
+- `HARNESS_AGENT_SNAPSHOT_STORE_URI=jdbc://snapshot`
+- `HARNESS_AGENT_SNAPSHOT_STORE_WIRED=true`
+
+回滚注意事项：
+
+- 回滚服务版本前先停止新版本写流量，避免同一 schema 同时被两套模型写入。
+- 回滚配置时优先切回上一版 `application-production.yml` 或环境变量。
+- 不删除 `ha_security_audit`、`ha_tool_audit_records`、`ha_tool_idempotency_records`、`ha_telemetry_events`、`ha_snapshot_metadata` 和 `ha_snapshot_content`。
+- 如果必须恢复数据库备份，先验证备份同时包含 session、AgentScope state、snapshot 和 idempotency 表。

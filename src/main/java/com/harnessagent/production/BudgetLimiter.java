@@ -1,35 +1,36 @@
 package com.harnessagent.production;
 
-import java.util.Map;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class BudgetLimiter {
 
     private final ProductionRuntimeProperties properties;
-    private final Map<String, UsageCounter> counters = new ConcurrentHashMap<>();
+    private final BudgetCounterStore counterStore;
 
-    public BudgetLimiter(ProductionRuntimeProperties properties) {
+    @Autowired
+    public BudgetLimiter(ProductionRuntimeProperties properties, BudgetCounterStore counterStore) {
         this.properties = properties;
+        this.counterStore = counterStore;
     }
 
     public BudgetDecision tryConsume(BudgetScope scope, long tokens) {
+        BudgetCounter fullScope = null;
         for (String key : keys(scope)) {
-            UsageCounter counter = counters.computeIfAbsent(key, ignored -> new UsageCounter());
-            long nextRequests = counter.requests.incrementAndGet();
-            long nextTokens = counter.tokens.addAndGet(Math.max(tokens, 0));
-            if (nextRequests > properties.getBudget().getRequestLimit()) {
-                return new BudgetDecision(false, key + ":request_limit_exceeded", nextRequests, nextTokens);
+            BudgetCounter counter = counterStore.increment(key, tokens);
+            if (counter.requests() > properties.getBudget().getRequestLimit()) {
+                return new BudgetDecision(false, key + ":request_limit_exceeded", counter.requests(), counter.tokens());
             }
-            if (nextTokens > properties.getBudget().getTokenLimit()) {
-                return new BudgetDecision(false, key + ":token_budget_exceeded", nextRequests, nextTokens);
+            if (counter.tokens() > properties.getBudget().getTokenLimit()) {
+                return new BudgetDecision(false, key + ":token_budget_exceeded", counter.requests(), counter.tokens());
+            }
+            if (key.equals("scope:" + scope.key())) {
+                fullScope = counter;
             }
         }
-        UsageCounter fullScope = counters.get("scope:" + scope.key());
-        return new BudgetDecision(true, "", fullScope.requests.get(), fullScope.tokens.get());
+        return new BudgetDecision(true, "", fullScope.requests(), fullScope.tokens());
     }
 
     private static List<String> keys(BudgetScope scope) {
@@ -39,10 +40,5 @@ public class BudgetLimiter {
                 "agent:" + scope.tenantId() + ":" + scope.agentId(),
                 "provider:" + scope.providerId(),
                 "scope:" + scope.key());
-    }
-
-    private static class UsageCounter {
-        private final AtomicLong requests = new AtomicLong();
-        private final AtomicLong tokens = new AtomicLong();
     }
 }

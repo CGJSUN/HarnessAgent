@@ -687,6 +687,78 @@ Kubernetes 部署建议：
 - 使用 readiness/liveness probe。
 - 将日志、trace、metrics 接入统一观测平台。
 
+### 11.1 Durable persistence 配置
+
+`development` 和 `test` profile 默认使用内存实现或本地 JSON 状态，适合本地调试和单进程测试。`production` profile 禁止 AgentScope 状态回落到本地 `JsonFileAgentStateStore`，需要显式配置 durable store。
+
+默认生产配置以 MySQL/JDBC 为主：
+
+```yaml
+harness-agent:
+  production:
+    profile: production
+    state-store:
+      type: mysql
+      mysql-dsn: ${HARNESS_AGENT_MYSQL_DSN}
+      durable-implementation-wired: true
+    durable-stores:
+      session: mysql
+      knowledge: mysql
+      tool: mysql
+      audit: mysql
+      telemetry: mysql
+      budget-counter: mysql
+    telemetry:
+      durable-store-enabled: true
+    snapshot-store:
+      type: jdbc
+      uri: jdbc://snapshot
+      implementation-wired: true
+```
+
+如果只把 AgentScope state 或预算计数切到 Redis：
+
+```yaml
+harness-agent:
+  production:
+    state-store:
+      type: redis
+      redis-uri: ${HARNESS_AGENT_REDIS_URI}
+      durable-implementation-wired: true
+    durable-stores:
+      budget-counter: redis
+```
+
+Redis 当前用于 AgentScope state 和预算计数；会话、知识、工具、审计、telemetry 和 JDBC snapshot 仍使用 MySQL/JDBC。
+
+### 11.2 Schema 初始化和备份恢复
+
+Flyway migration 位于 `classpath:db/migration`，首个版本为 `V1__durable_persistence.sql`。它创建以下核心表：
+
+- `ha_session_messages`
+- `ha_knowledge_sources`、`ha_knowledge_chunks`
+- `ha_tool_definitions`、`ha_tool_audit_records`、`ha_tool_idempotency_records`
+- `ha_security_audit`
+- `ha_budget_counters`
+- `ha_agent_state`
+- `ha_telemetry_events`
+- `ha_snapshot_metadata`、`ha_snapshot_content`
+
+所有生产查询路径都包含 tenant、user、agent、session、time 或 resource 维度索引。备份恢复时至少同时恢复 session、agent state、tool idempotency、audit、telemetry 和 snapshot 表；只恢复业务消息而不恢复 `ha_agent_state` 会导致 AgentScope memory 和 compaction 状态丢失。
+
+### 11.3 发布前双实例验证
+
+发布前至少执行一次双实例恢复验证：
+
+1. 用同一 MySQL schema 启动两个服务实例。
+2. 在实例 A 写入会话消息、知识源、工具幂等结果、AgentScope state 和 workspace snapshot。
+3. 在实例 B 读取同一 tenant/user/agent/session 的数据。
+4. 确认 tenant-b 不能读取 tenant-a 的会话、知识、审计或 snapshot。
+5. 删除 session 或 snapshot 后，确认另一个实例立即看不到对应数据。
+6. 调用 `/api/release/phase-gates`，确认 `Production Runtime` gate 为 `PASSED`；如果为 `BLOCKED`，先处理返回的 `failureReasons`。
+
+回滚时优先切回上一版配置或上一版服务实例，不要删除 durable store 中的审计、幂等、telemetry 和 snapshot 记录。确需回退 schema 时，先完成数据库备份并确认没有新版本服务继续写入。
+
 ## 12. 团队学习路径
 
 推荐按章节分工学习：

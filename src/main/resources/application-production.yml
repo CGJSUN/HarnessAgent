@@ -1,0 +1,53 @@
+harness-agent:
+  production:
+    profile: production
+    replica-count: 2
+    state-store:
+      type: mysql
+      # Wiring-driving settings: production validation treats these as real only when durable-implementation-wired is true.
+      redis-uri: ${HARNESS_AGENT_REDIS_URI:}
+      mysql-dsn: ${HARNESS_AGENT_MYSQL_DSN:}
+      durable-implementation-wired: ${HARNESS_AGENT_DURABLE_STATE_WIRED:false}
+      implementation-name: jdbc-agent-state-store
+    durable-stores:
+      session: mysql
+      knowledge: mysql
+      tool: mysql
+      audit: mysql
+      telemetry: mysql
+      budget-counter: mysql
+    schema:
+      name: ${HARNESS_AGENT_DB_SCHEMA:harness_agent}
+      migration-tool: flyway
+      migration-location: classpath:db/migration
+      version: ${HARNESS_AGENT_SCHEMA_VERSION:}
+    telemetry:
+      open-telemetry-export-enabled: ${HARNESS_AGENT_OTEL_ENABLED:false}
+      otlp-endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:}
+      durable-store-enabled: ${HARNESS_AGENT_DURABLE_TELEMETRY_ENABLED:false}
+      durable-store-type: mysql
+    sandbox:
+      enabled: ${HARNESS_AGENT_SANDBOX_ENABLED:false}
+    snapshot-store:
+      type: ${HARNESS_AGENT_SNAPSHOT_STORE_TYPE:none}
+      uri: ${HARNESS_AGENT_SNAPSHOT_STORE_URI:}
+      implementation-wired: ${HARNESS_AGENT_SNAPSHOT_STORE_WIRED:false}
+      writable-check-enabled: true
+    health-check:
+      enabled: true
+      fail-fast: true
+      timeout: 5s
+      include-failure-reasons: true
+    retention:
+      audit: 180d
+      telemetry: 30d
+      snapshots: 14d
+
+spring:
+  datasource:
+    url: ${HARNESS_AGENT_MYSQL_DSN:}
+    username: ${HARNESS_AGENT_DB_USERNAME:}
+    password: ${HARNESS_AGENT_DB_PASSWORD:}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration

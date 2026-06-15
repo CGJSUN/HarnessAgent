@@ -9,6 +9,7 @@ import com.harnessagent.config.HarnessAgentProperties;
 import com.harnessagent.production.BudgetDecision;
 import com.harnessagent.production.BudgetLimiter;
 import com.harnessagent.production.BudgetScope;
+import com.harnessagent.production.InMemoryBudgetCounterStore;
 import com.harnessagent.production.ProductionRuntimeProperties;
 import com.harnessagent.production.RuntimeTelemetry;
 import com.harnessagent.production.TelemetryEventType;
@@ -76,7 +77,7 @@ public class ChatService {
                 agentRuntime,
                 knowledgeService,
                 RuntimeTelemetry.noop(),
-                new BudgetLimiter(new ProductionRuntimeProperties()),
+                new BudgetLimiter(new ProductionRuntimeProperties(), new InMemoryBudgetCounterStore()),
                 new HarnessAgentProperties(),
                 new PromptInjectionGuard());
     }

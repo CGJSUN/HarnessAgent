@@ -7,9 +7,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 @Repository
+@Profile("!production")
 public class InMemorySessionStore implements SessionStore {
 
     private final Map<SessionKey, List<ChatMessage>> sessions = new ConcurrentHashMap<>();

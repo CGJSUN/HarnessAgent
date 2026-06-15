@@ -2,10 +2,9 @@ package com.harnessagent.security;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -13,14 +12,23 @@ public class SecurityAuditService {
 
     private final SensitiveDataRedactor redactor;
     private final AuthorizationService authorizationService;
-    private final List<SecurityAuditRecord> records = new CopyOnWriteArrayList<>();
+    private final SecurityAuditStore store;
     private Duration retention = Duration.ofDays(365);
+
+    @Autowired
+    public SecurityAuditService(
+            SensitiveDataRedactor redactor,
+            AuthorizationService authorizationService,
+            SecurityAuditStore store) {
+        this.redactor = redactor;
+        this.authorizationService = authorizationService;
+        this.store = store;
+    }
 
     public SecurityAuditService(
             SensitiveDataRedactor redactor,
             AuthorizationService authorizationService) {
-        this.redactor = redactor;
-        this.authorizationService = authorizationService;
+        this(redactor, authorizationService, new InMemorySecurityAuditStore());
     }
 
     public SecurityAuditRecord record(
@@ -38,8 +46,7 @@ public class SecurityAuditService {
                 resourceId,
                 action,
                 redactor.redactMap(details));
-        records.add(record);
-        return record;
+        return store.save(record);
     }
 
     public List<SecurityAuditRecord> search(
@@ -48,11 +55,7 @@ public class SecurityAuditService {
             ResourceAccessPolicy auditSearchPolicy) {
         authorizationService.require(principal, auditSearchPolicy, Permission.SEARCH_AUDIT);
         Instant cutoff = Instant.now().minus(retention);
-        return records.stream()
-                .filter(record -> record.tenantId().equals(tenantId))
-                .filter(record -> !record.occurredAt().isBefore(cutoff))
-                .sorted(Comparator.comparing(SecurityAuditRecord::occurredAt))
-                .toList();
+        return store.search(tenantId, cutoff);
     }
 
     public void setRetention(Duration retention) {

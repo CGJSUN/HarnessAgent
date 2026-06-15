@@ -136,6 +136,29 @@ class SecurityGovernanceTest {
     }
 
     @Test
+    void sharesSecurityAuditRecordsThroughAuditStore() {
+        SecurityAuditStore store = new InMemorySecurityAuditStore();
+        SecurityAuditService writer = new SecurityAuditService(redactor, authorizationService, store);
+        SecurityAuditService reader = new SecurityAuditService(redactor, authorizationService, store);
+        SecurityPrincipal actor = principal("tenant-a", "user-a", Set.of("employee"), Set.of());
+        SecurityPrincipal auditor = principal("tenant-a", "auditor-a", Set.of("auditor"), Set.of());
+        ResourceAccessPolicy auditPolicy = new ResourceAccessPolicy(
+                ResourceType.AUDIT,
+                "tenant-a",
+                Set.of(),
+                Set.of("auditor"),
+                Set.of(),
+                Set.of(Permission.SEARCH_AUDIT));
+
+        writer.record(actor, ResourceType.TOOL, "tool-1", "HIGH_RISK_CONFIRMED",
+                Map.of("token", "secret-token"));
+
+        assertThat(reader.search(auditor, "tenant-a", auditPolicy))
+                .extracting(SecurityAuditRecord::action)
+                .containsExactly("HIGH_RISK_CONFIRMED");
+    }
+
+    @Test
     void requiresSkillApprovalAndSupportsRollback() {
         SkillVersion v1 = skillGovernanceService.propose(
                 "tenant-a",

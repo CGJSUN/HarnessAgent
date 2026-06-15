@@ -24,7 +24,116 @@ class ProductionRuntimeTest {
 
         assertThatThrownBy(validator::validate)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("distributed state");
+                .hasMessageContaining("durable state");
+    }
+
+    @Test
+    void rejectsLocalStateForProductionSingleReplicaRuntime() {
+        ProductionRuntimeProperties properties = properties();
+        properties.setProfile(RuntimeProfile.PRODUCTION);
+        properties.setReplicaCount(1);
+        properties.getStateStore().setType(StateStoreType.LOCAL_JSON);
+
+        ProductionRuntimeValidator validator = new ProductionRuntimeValidator(properties);
+
+        assertThatThrownBy(validator::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("durable state");
+    }
+
+    @Test
+    void rejectsProductionWhenTelemetryIsNeitherExportedNorDurablyStored() {
+        ProductionRuntimeProperties properties = properties();
+        properties.setProfile(RuntimeProfile.PRODUCTION);
+        properties.getStateStore().setType(StateStoreType.REDIS);
+        properties.getStateStore().setRedisUri("redis://prod:6379/0");
+        properties.getStateStore().setDurableImplementationWired(true);
+
+        ProductionRuntimeValidator validator = new ProductionRuntimeValidator(properties);
+
+        assertThatThrownBy(validator::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("telemetry");
+    }
+
+    @Test
+    void acceptsProductionWhenOpenTelemetryExportIsConfigured() {
+        ProductionRuntimeProperties properties = properties();
+        properties.setProfile(RuntimeProfile.PRODUCTION);
+        properties.getStateStore().setType(StateStoreType.REDIS);
+        properties.getStateStore().setRedisUri("redis://prod:6379/0");
+        properties.getStateStore().setDurableImplementationWired(true);
+        properties.getTelemetry().setOpenTelemetryExportEnabled(true);
+
+        StateStorePlan plan = new ProductionRuntimeValidator(properties).stateStorePlan();
+
+        assertThat(plan.productionDurable()).isTrue();
+    }
+
+    @Test
+    void rejectsProductionMysqlStateWithoutSchemaOrMigrationInfo() {
+        ProductionRuntimeProperties properties = properties();
+        properties.setProfile(RuntimeProfile.PRODUCTION);
+        properties.getStateStore().setType(StateStoreType.MYSQL);
+        properties.getStateStore().setMysqlDsn("jdbc:mysql://prod/harness_agent");
+        properties.getStateStore().setDurableImplementationWired(true);
+        properties.getTelemetry().setOpenTelemetryExportEnabled(true);
+
+        ProductionRuntimeValidator validator = new ProductionRuntimeValidator(properties);
+
+        assertThatThrownBy(validator::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("schema")
+                .hasMessageContaining("migration");
+    }
+
+    @Test
+    void acceptsProductionMysqlStateWithSchemaMigrationAndDurableTelemetryStore() {
+        ProductionRuntimeProperties properties = properties();
+        properties.setProfile(RuntimeProfile.PRODUCTION);
+        properties.getStateStore().setType(StateStoreType.MYSQL);
+        properties.getStateStore().setMysqlDsn("jdbc:mysql://prod/harness_agent");
+        properties.getStateStore().setDurableImplementationWired(true);
+        properties.getSchema().setName("harness_agent");
+        properties.getSchema().setMigrationTool("flyway");
+        properties.getSchema().setMigrationLocation("classpath:db/migration");
+        properties.getTelemetry().setDurableStoreEnabled(true);
+
+        StateStorePlan plan = new ProductionRuntimeValidator(properties).stateStorePlan();
+
+        assertThat(plan.productionDurable()).isTrue();
+    }
+
+    @Test
+    void capabilityValidationReportsActiveStoreSchemaAndSnapshotFailures() {
+        ProductionRuntimeProperties properties = productionMysqlProperties();
+        ProductionRuntimeValidator validator = new ProductionRuntimeValidator(
+                properties,
+                () -> DurablePersistenceHealth.failed(List.of("Missing durable persistence table: ha_agent_state")));
+
+        assertThatThrownBy(validator::validateCapabilities)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Production durable persistence capabilities failed")
+                .hasMessageContaining("ha_agent_state");
+    }
+
+    @Test
+    void allowsDevelopmentAndTestLocalStateWhileMarkingItNonDurable() {
+        ProductionRuntimeProperties development = properties();
+        development.setProfile(RuntimeProfile.DEVELOPMENT);
+        development.getStateStore().setType(StateStoreType.LOCAL_JSON);
+
+        ProductionRuntimeProperties test = properties();
+        test.setProfile(RuntimeProfile.TEST);
+        test.getStateStore().setType(StateStoreType.LOCAL_JSON);
+
+        StateStorePlan developmentPlan = new ProductionRuntimeValidator(development).stateStorePlan();
+        StateStorePlan testPlan = new ProductionRuntimeValidator(test).stateStorePlan();
+
+        assertThat(developmentPlan.productionDurable()).isFalse();
+        assertThat(testPlan.productionDurable()).isFalse();
+        assertThat(developmentPlan.distributed()).isFalse();
+        assertThat(testPlan.distributed()).isFalse();
     }
 
     @Test
@@ -34,6 +143,8 @@ class ProductionRuntimeTest {
         properties.setReplicaCount(2);
         properties.getStateStore().setType(StateStoreType.REDIS);
         properties.getStateStore().setRedisUri("redis://prod:6379/0");
+        properties.getStateStore().setDurableImplementationWired(true);
+        properties.getTelemetry().setOpenTelemetryExportEnabled(true);
 
         StateStorePlan plan = new ProductionRuntimeValidator(properties).stateStorePlan();
         String key = new TenantStateKeyStrategy().key(new RuntimeContextScope(
@@ -45,6 +156,7 @@ class ProductionRuntimeTest {
                 "agent-a:session-a"), "memory");
 
         assertThat(plan.distributed()).isTrue();
+        assertThat(plan.productionDurable()).isTrue();
         assertThat(plan.location()).isEqualTo("redis://prod:6379/0");
         assertThat(key).isEqualTo("tenant:tenant-a:user:user-a:agent:agent-a:session:session-a:scope:memory");
     }
@@ -104,11 +216,27 @@ class ProductionRuntimeTest {
         ProductionRuntimeProperties properties = properties();
         properties.getBudget().setRequestLimit(1);
         properties.getBudget().setTokenLimit(100);
-        BudgetLimiter limiter = new BudgetLimiter(properties);
+        BudgetLimiter limiter = new BudgetLimiter(properties, new InMemoryBudgetCounterStore());
         BudgetScope scope = new BudgetScope("tenant-a", "user-a", "agent-a", "dashscope");
 
         BudgetDecision first = limiter.tryConsume(scope, 10);
         BudgetDecision second = limiter.tryConsume(scope, 10);
+
+        assertThat(first.allowed()).isTrue();
+        assertThat(second.allowed()).isFalse();
+        assertThat(second.reason()).contains("request_limit_exceeded");
+    }
+
+    @Test
+    void sharesBudgetCountersAcrossLimiterInstancesThroughStore() {
+        ProductionRuntimeProperties properties = properties();
+        properties.getBudget().setRequestLimit(1);
+        properties.getBudget().setTokenLimit(100);
+        BudgetCounterStore store = new InMemoryBudgetCounterStore();
+        BudgetScope scope = new BudgetScope("tenant-a", "user-a", "agent-a", "dashscope");
+
+        BudgetDecision first = new BudgetLimiter(properties, store).tryConsume(scope, 10);
+        BudgetDecision second = new BudgetLimiter(properties, store).tryConsume(scope, 10);
 
         assertThat(first.allowed()).isTrue();
         assertThat(second.allowed()).isFalse();
@@ -140,5 +268,18 @@ class ProductionRuntimeTest {
 
     private static ProductionRuntimeProperties properties() {
         return new ProductionRuntimeProperties();
+    }
+
+    private static ProductionRuntimeProperties productionMysqlProperties() {
+        ProductionRuntimeProperties properties = properties();
+        properties.setProfile(RuntimeProfile.PRODUCTION);
+        properties.getStateStore().setType(StateStoreType.MYSQL);
+        properties.getStateStore().setMysqlDsn("jdbc:mysql://prod/harness_agent");
+        properties.getStateStore().setDurableImplementationWired(true);
+        properties.getSchema().setName("harness_agent");
+        properties.getSchema().setMigrationTool("flyway");
+        properties.getSchema().setMigrationLocation("classpath:db/migration");
+        properties.getTelemetry().setDurableStoreEnabled(true);
+        return properties;
     }
 }

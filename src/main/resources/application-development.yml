@@ -1,0 +1,26 @@
+harness-agent:
+  production:
+    profile: development
+    replica-count: 1
+    state-store:
+      type: local-json
+      local-directory: .harness-agent/sessions
+      durable-implementation-wired: false
+      implementation-name: local-json-development
+      # Planning-only examples for local experiments; these do not wire Redis or MySQL.
+      redis-uri: redis://localhost:6379/0
+      mysql-dsn: jdbc:mysql://localhost:3306/harness_agent
+    durable-stores:
+      session: local-json
+      knowledge: local-json
+      tool: local-json
+      audit: local-json
+      telemetry: local-json
+      budget-counter: local-json
+    telemetry:
+      open-telemetry-export-enabled: false
+      durable-store-enabled: false
+    snapshot-store:
+      type: none
+      uri: ""
+      implementation-wired: false

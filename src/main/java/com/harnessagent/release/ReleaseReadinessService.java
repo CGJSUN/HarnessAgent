@@ -1,10 +1,29 @@
 package com.harnessagent.release;
 
+import com.harnessagent.production.DurablePersistenceHealth;
+import com.harnessagent.production.DurablePersistenceHealthService;
 import java.util.List;
+import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ReleaseReadinessService {
+
+    private final Supplier<DurablePersistenceHealth> healthSupplier;
+
+    public ReleaseReadinessService() {
+        this(DurablePersistenceHealth::healthy);
+    }
+
+    @Autowired
+    public ReleaseReadinessService(DurablePersistenceHealthService healthService) {
+        this(healthService::check);
+    }
+
+    ReleaseReadinessService(Supplier<DurablePersistenceHealth> healthSupplier) {
+        this.healthSupplier = healthSupplier;
+    }
 
     public String mvpScenario() {
         return "企业制度知识助手";
@@ -20,6 +39,10 @@ public class ReleaseReadinessService {
     }
 
     public List<PhaseGate> phaseGates() {
+        DurablePersistenceHealth persistenceHealth = healthSupplier.get();
+        PhaseGateStatus productionRuntimeStatus = persistenceHealth.passed()
+                ? PhaseGateStatus.PASSED
+                : PhaseGateStatus.BLOCKED;
         return List.of(
                 new PhaseGate("MVP Core", PhaseGateStatus.PASSED,
                         List.of("chat", "sessions", "streaming", "model-provider"), "disable-agent"),
@@ -27,8 +50,10 @@ public class ReleaseReadinessService {
                         List.of("ingest", "permission-filter", "citation", "no-answer"), "disable-rag"),
                 new PhaseGate("Tool Governance", PhaseGateStatus.PASSED,
                         List.of("permission", "schema", "confirmation", "idempotency", "audit"), "disable-tool"),
-                new PhaseGate("Production Runtime", PhaseGateStatus.PASSED,
-                        List.of("distributed-state", "workspace", "telemetry", "budget", "timeout"), "rollback-config"),
+                new PhaseGate("Production Runtime", productionRuntimeStatus,
+                        List.of("distributed-state", "workspace", "telemetry", "budget", "timeout", "snapshot"),
+                        "rollback-config",
+                        persistenceHealth.failureReasons()),
                 new PhaseGate("Security Governance", PhaseGateStatus.PASSED,
                         List.of("identity", "rbac", "redaction", "audit", "skill"), "disable-skill"),
                 new PhaseGate("Console", PhaseGateStatus.PASSED,
@@ -48,12 +73,23 @@ public class ReleaseReadinessService {
     }
 
     public EndToEndAcceptanceReport acceptanceReport() {
+        DurablePersistenceHealth persistenceHealth = healthSupplier.get();
         return new EndToEndAcceptanceReport(
                 true,
                 true,
                 true,
                 true,
-                true,
-                List.of("Use JDK 17 before running Maven tests."));
+                persistenceHealth.passed(),
+                acceptanceNotes(persistenceHealth));
+    }
+
+    private static List<String> acceptanceNotes(DurablePersistenceHealth persistenceHealth) {
+        if (persistenceHealth.passed()) {
+            return List.of("Use JDK 17 before running Maven tests.");
+        }
+        return java.util.stream.Stream.concat(
+                        java.util.stream.Stream.of("Use JDK 17 before running Maven tests."),
+                        persistenceHealth.failureReasons().stream())
+                .toList();
     }
 }

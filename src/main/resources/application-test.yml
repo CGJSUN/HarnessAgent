@@ -1,0 +1,23 @@
+harness-agent:
+  production:
+    profile: test
+    replica-count: 1
+    state-store:
+      type: local-json
+      local-directory: ${java.io.tmpdir}/harness-agent-test/sessions
+      durable-implementation-wired: false
+      implementation-name: local-json-test
+    durable-stores:
+      session: local-json
+      knowledge: local-json
+      tool: local-json
+      audit: local-json
+      telemetry: local-json
+      budget-counter: local-json
+    telemetry:
+      open-telemetry-export-enabled: false
+      durable-store-enabled: false
+    snapshot-store:
+      type: none
+      uri: ""
+      implementation-wired: false

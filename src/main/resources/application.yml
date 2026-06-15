@@ -1,6 +1,15 @@
 server:
   port: 8080
 
+spring:
+  datasource:
+    url: ${HARNESS_AGENT_DATASOURCE_URL:jdbc:h2:mem:harness_agent;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=false}
+    username: ${HARNESS_AGENT_DATASOURCE_USERNAME:sa}
+    password: ${HARNESS_AGENT_DATASOURCE_PASSWORD:}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
 harness-agent:
   default-agent-id: enterprise-assistant
   default-provider: echo
@@ -30,8 +39,23 @@ harness-agent:
     state-store:
       type: local-json
       local-directory: .harness-agent/sessions
+      durable-implementation-wired: false
+      implementation-name: local-json-development
+      # Planning-only local examples; these do not drive real store wiring while type is local-json.
       redis-uri: redis://localhost:6379/0
       mysql-dsn: jdbc:mysql://localhost:3306/harness_agent
+    durable-stores:
+      session: local-json
+      knowledge: local-json
+      tool: local-json
+      audit: local-json
+      telemetry: local-json
+      budget-counter: local-json
+    schema:
+      name: ""
+      migration-tool: ""
+      migration-location: ""
+      version: ""
     remote-filesystem:
       root-uri: s3://harness-agent-workspaces
     sandbox:
@@ -41,9 +65,25 @@ harness-agent:
     snapshot-store:
       type: none
       uri: ""
+      implementation-wired: false
+      writable-check-enabled: true
     observability:
       enabled: true
       service-name: harness-agent
+    telemetry:
+      open-telemetry-export-enabled: false
+      otlp-endpoint: ""
+      durable-store-enabled: false
+      durable-store-type: mysql
+    health-check:
+      enabled: true
+      fail-fast: true
+      timeout: 5s
+      include-failure-reasons: true
+    retention:
+      audit: 180d
+      telemetry: 30d
+      snapshots: 14d
     budget:
       request-limit: 1000
       token-limit: 1000000
