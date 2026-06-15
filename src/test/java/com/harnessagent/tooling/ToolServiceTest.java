@@ -166,6 +166,24 @@ class ToolServiceTest {
     }
 
     @Test
+    void rejectsPendingHighRiskToolWithoutCallingExecutorAndAuditsDecision() {
+        ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
+
+        ToolExecutionResult result = service.reject(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "approved"),
+                false,
+                "idem-1"));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.DENIED);
+        assertThat(result.message()).contains("rejected by user");
+        assertThat(executor.invocations).isZero();
+        ToolAuditRecord audit = service.listAudit("tenant-a").get(0);
+        assertThat(audit.status()).isEqualTo(ToolExecutionStatus.DENIED);
+        assertThat(audit.idempotencyKey()).isEqualTo("idem-1");
+    }
+
+    @Test
     void rejectsIdempotentRetryWhenParametersChange() {
         ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
 

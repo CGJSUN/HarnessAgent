@@ -154,6 +154,25 @@ public class ToolService {
         return result;
     }
 
+    public ToolExecutionResult reject(ToolExecutionCommand command) {
+        Instant startedAt = Instant.now();
+        Optional<ToolDefinition> found = store.findTool(command.toolId());
+        if (found.isEmpty()) {
+            ToolExecutionResult result = ToolExecutionResult.denied(command.toolId(), "Unknown tool.");
+            auditUnknown(command, result, startedAt);
+            recordToolTelemetry(command, "", result, startedAt);
+            return result;
+        }
+        ToolDefinition tool = found.get();
+        ToolExecutionResult rejected = preflight(command, tool);
+        if (rejected == null) {
+            rejected = ToolExecutionResult.denied(tool.id(), "High-risk tool operation rejected by user.");
+        }
+        audit(command, tool, rejected, startedAt, rejected.message());
+        recordToolTelemetry(command, tool.name(), rejected, startedAt);
+        return rejected;
+    }
+
     public List<ToolAuditRecord> listAudit(String tenantId) {
         return store.listAudit(tenantId);
     }

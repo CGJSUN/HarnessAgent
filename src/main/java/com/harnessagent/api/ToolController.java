@@ -91,6 +91,31 @@ public class ToolController {
                 request.idempotencyKey()));
     }
 
+    @PostMapping("/reject")
+    public ToolExecutionResult reject(
+            @RequestHeader Map<String, String> headers,
+            @RequestBody ToolExecutionApiRequest request) {
+        com.harnessagent.security.SecurityPrincipal principal = identityResolver.resolve(
+                headers,
+                request.tenantId(),
+                request.userId(),
+                request.roles(),
+                request.departments());
+        return toolService.reject(new ToolExecutionCommand(
+                principal.tenantId(),
+                principal.userId(),
+                request.agentId(),
+                request.sessionId(),
+                request.toolId(),
+                request.parameters(),
+                principal.departments(),
+                principal.roles(),
+                false,
+                request.approvalId(),
+                request.reviewerId(),
+                request.idempotencyKey()));
+    }
+
     @GetMapping("/audit")
     public List<ToolAuditRecord> listAudit(@RequestParam String tenantId) {
         return toolService.listAudit(tenantId);

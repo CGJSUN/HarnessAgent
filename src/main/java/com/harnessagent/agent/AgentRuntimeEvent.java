@@ -1,9 +1,27 @@
 package com.harnessagent.agent;
 
-public record AgentRuntimeEvent(AgentRuntimeEventType type, String content, boolean terminal) {
+import java.util.Map;
+
+public record AgentRuntimeEvent(
+        AgentRuntimeEventType type,
+        String content,
+        boolean terminal,
+        Map<String, Object> attributes) {
+
+    public AgentRuntimeEvent(AgentRuntimeEventType type, String content, boolean terminal) {
+        this(type, content, terminal, Map.of());
+    }
+
+    public AgentRuntimeEvent {
+        attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
+    }
 
     public static AgentRuntimeEvent status(String content) {
         return new AgentRuntimeEvent(AgentRuntimeEventType.STATUS, content, false);
+    }
+
+    public static AgentRuntimeEvent status(String content, Map<String, Object> attributes) {
+        return new AgentRuntimeEvent(AgentRuntimeEventType.STATUS, content, false, attributes);
     }
 
     public static AgentRuntimeEvent delta(String content) {
@@ -16,5 +34,9 @@ public record AgentRuntimeEvent(AgentRuntimeEventType type, String content, bool
 
     public static AgentRuntimeEvent done(String content) {
         return new AgentRuntimeEvent(AgentRuntimeEventType.DONE, content, true);
+    }
+
+    public static AgentRuntimeEvent done(String content, Map<String, Object> attributes) {
+        return new AgentRuntimeEvent(AgentRuntimeEventType.DONE, content, true, attributes);
     }
 }

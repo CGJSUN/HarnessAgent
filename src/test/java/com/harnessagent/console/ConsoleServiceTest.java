@@ -152,6 +152,45 @@ class ConsoleServiceTest {
         assertThat(disabledSkill.status().name()).isEqualTo("DISABLED");
     }
 
+    @Test
+    void userConsoleIncludesPendingToolOperationContext() {
+        ToolDefinition tool = toolService.registerTool(new ToolRegistration(
+                "tenant-a",
+                "ticket.update",
+                "update ticket",
+                "ServiceDesk",
+                "owner-a",
+                ToolSourceType.INTERNAL,
+                "service-desk",
+                ToolRiskLevel.HIGH_RISK,
+                true,
+                true,
+                new ToolParameterSchema(Set.of("ticketId"), Set.of(), Map.of(), Set.of()),
+                ToolPermissionPolicy.allowAll(),
+                ToolAuditPolicy.standard()));
+        toolService.execute(new com.harnessagent.tooling.ToolExecutionCommand(
+                "tenant-a",
+                "user-a",
+                "agent-a",
+                "session-a",
+                tool.id(),
+                Map.of("ticketId", "T-1"),
+                Set.of(),
+                Set.of(),
+                false,
+                null,
+                null,
+                "idem-1"));
+
+        UserConsoleView view = service.userConsole(user(), "agent-a", "session-a");
+
+        assertThat(view.confirmationPrompts()).hasSize(1);
+        ToolConfirmationView prompt = view.confirmationPrompts().get(0);
+        assertThat(prompt.idempotencyKey()).isEqualTo("idem-1");
+        assertThat(prompt.operationSummary()).containsEntry("toolName", "ticket.update");
+        assertThat(prompt.operationSummary()).containsKey("parameters");
+    }
+
     private static HarnessAgentProperties properties() {
         HarnessAgentProperties properties = new HarnessAgentProperties();
         HarnessAgentProperties.AgentDefinition agent = new HarnessAgentProperties.AgentDefinition();

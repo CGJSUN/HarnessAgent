@@ -109,12 +109,12 @@ public class ConsoleController {
     }
 
     @PatchMapping("/knowledge/{sourceId}/revoke")
-    public KnowledgeSource revokeKnowledge(
+    public KnowledgeSourceView revokeKnowledge(
             @RequestHeader Map<String, String> headers,
             @PathVariable String sourceId,
             @RequestParam String tenantId,
             @RequestParam String userId) {
-        return consoleService.revokeKnowledge(resolve(headers, tenantId, userId), sourceId);
+        return KnowledgeSourceView.from(consoleService.revokeKnowledge(resolve(headers, tenantId, userId), sourceId));
     }
 
     @GetMapping("/skills")

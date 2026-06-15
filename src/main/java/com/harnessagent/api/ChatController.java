@@ -4,9 +4,11 @@ import com.harnessagent.agent.AgentRuntimeEvent;
 import com.harnessagent.chat.ChatCommand;
 import com.harnessagent.chat.ChatResult;
 import com.harnessagent.chat.ChatService;
+import com.harnessagent.rag.KnowledgeCitation;
 import com.harnessagent.security.SecurityPrincipal;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -85,9 +87,22 @@ public class ChatController {
             emitter.send(SseEmitter.event()
                     .name(event.type().name().toLowerCase())
                     .data(new StreamEventResponse(
-                            event.type().name().toLowerCase(), event.content(), event.terminal())));
+                            event.type().name().toLowerCase(),
+                            event.content(),
+                            event.terminal(),
+                            (String) event.attributes().get("noAnswerReason"),
+                            citations(event.attributes().get("citations")),
+                            event.attributes())));
         } catch (IOException exception) {
             emitter.completeWithError(exception);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<KnowledgeCitation> citations(Object value) {
+        if (value instanceof List<?> list && list.stream().allMatch(KnowledgeCitation.class::isInstance)) {
+            return (List<KnowledgeCitation>) list;
+        }
+        return List.of();
     }
 }

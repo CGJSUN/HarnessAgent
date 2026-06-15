@@ -83,7 +83,14 @@ public class ConsoleService {
                         record.toolId(),
                         record.toolName(),
                         record.sessionId(),
-                        record.sanitizedInput()))
+                        record.sanitizedInput(),
+                        Map.of(
+                                "toolId", record.toolId(),
+                                "toolName", record.toolName(),
+                                "riskLevel", record.riskLevel().name(),
+                                "status", record.status().name(),
+                                "parameters", record.sanitizedInput()),
+                        record.idempotencyKey()))
                 .toList();
         return new UserConsoleView(
                 sessionStore.listSessions(context.tenantId(), context.userId(), context.agentId()),

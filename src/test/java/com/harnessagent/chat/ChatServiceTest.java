@@ -102,6 +102,36 @@ class ChatServiceTest {
     }
 
     @Test
+    void streamsCitationMetadataWhenKnowledgeIsUsed() {
+        knowledgeService.ingestDocument(new KnowledgeDocumentInput(
+                new KnowledgeSourceRegistration(
+                        "tenant-a",
+                        "owner-a",
+                        "报销制度",
+                        "v1",
+                        KnowledgeVisibility.PUBLIC,
+                        Set.of(),
+                        Set.of(),
+                        Set.of(),
+                        "manual"),
+                "发票需要在三十天内提交。"));
+
+        StepVerifier.create(chatService.stream(new ChatCommand(
+                        "tenant-a",
+                        "user-a",
+                        "agent-a",
+                        "session-rag-stream",
+                        "发票多久提交",
+                        true,
+                        Set.of(),
+                        Set.of(),
+                        3)))
+                .expectNextCount(3)
+                .assertNext(event -> assertThat(event.attributes()).containsKey("citations"))
+                .verifyComplete();
+    }
+
+    @Test
     void returnsNoAnswerWithoutCallingAgentWhenEvidenceIsMissing() {
         ChatResult result = chatService.chat(new ChatCommand(
                 "tenant-a",
@@ -115,6 +145,26 @@ class ChatServiceTest {
                 3)).block();
 
         assertThat(result.noAnswerReason()).contains("无法从当前可用知识中确定答案");
+        assertThat(agentRuntime.requests).isEmpty();
+    }
+
+    @Test
+    void streamsNoAnswerMetadataWhenEvidenceIsMissing() {
+        StepVerifier.create(chatService.stream(new ChatCommand(
+                        "tenant-a",
+                        "user-a",
+                        "agent-a",
+                        "session-no-answer-stream",
+                        "没有知识的问题",
+                        true,
+                        Set.of(),
+                        Set.of(),
+                        3)))
+                .assertNext(event -> assertThat(event.attributes()).containsKey("noAnswerReason"))
+                .expectNextMatches(event -> event.content().contains("无法从当前可用知识中确定答案"))
+                .expectNextMatches(event -> event.attributes().containsKey("noAnswerReason"))
+                .verifyComplete();
+
         assertThat(agentRuntime.requests).isEmpty();
     }
 

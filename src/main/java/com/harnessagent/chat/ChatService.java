@@ -119,9 +119,9 @@ public class ChatService {
         if (knowledge != null && !knowledge.answered()) {
             sessionStore.appendMessage(context, ChatMessage.assistant(knowledge.message()));
             return Flux.just(
-                    AgentRuntimeEvent.status("knowledge_no_answer"),
+                    AgentRuntimeEvent.status("knowledge_no_answer", Map.of("noAnswerReason", knowledge.message())),
                     AgentRuntimeEvent.delta(knowledge.message()),
-                    AgentRuntimeEvent.done("completed"))
+                    AgentRuntimeEvent.done("completed", Map.of("noAnswerReason", knowledge.message())))
                     .doOnComplete(() -> recordChatTelemetry(command, startedAt, "knowledge_no_answer"));
         }
 
@@ -132,6 +132,16 @@ public class ChatService {
                     if (event.type() == AgentRuntimeEventType.DELTA) {
                         assistantContent.append(event.content());
                     }
+                })
+                .map(event -> {
+                    if (event.type() == AgentRuntimeEventType.DONE
+                            && knowledge != null
+                            && knowledge.answered()) {
+                        return AgentRuntimeEvent.done(
+                                event.content(),
+                                Map.of("citations", knowledge.citations()));
+                    }
+                    return event;
                 })
                 .doOnComplete(() -> {
                     if (!assistantContent.isEmpty()) {
