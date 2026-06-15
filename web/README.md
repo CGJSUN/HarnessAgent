@@ -55,4 +55,4 @@ If trusted headers are present, the backend requires request tenant/user values 
 - Skill approve, publish, and disable are supported; Skill rollback is shown as a disabled future action because no REST endpoint exposes it.
 - Tool registration and authorization remain under `/api/tools`; the console view only toggles existing tools.
 - `GET /api/orchestration/agents/{agentId}/tool` registers an agent as a tool and is not used for passive UI loading.
-- Current management and telemetry stores are runtime-only/in-memory in the MVP backend, so UI state should not be interpreted as durable production persistence.
+- Local development may still use H2, local-json, or in-memory stores. Durable production persistence depends on the production profile and MySQL/JDBC, telemetry, optional Redis, and snapshot wiring.

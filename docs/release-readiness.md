@@ -25,7 +25,7 @@ MVP 验收标准：
 |---|---|---|
 | MVP Core | 聊天、会话隔离、流式响应和模型抽象通过测试 | 禁用新 Agent 或切回 echo provider |
 | RAG | 文档接入、权限过滤、引用、失效和无答案通过测试 | 关闭 `knowledgeEnabled` 或禁用知识源 |
-| 工具调用 | 权限拒绝、参数拒绝、确认、幂等、审计和 MCP/Agent 工具治理通过测试 | 禁用单个工具或全部高风险工具 |
+| 工具调用 | 权限拒绝、参数拒绝、确认、幂等、审计和 MCP/Agent 工具治理通过测试；MCP 当前验收的是受治理工具来源，不包含真实外部 MCP client | 禁用单个工具或全部高风险工具 |
 | 生产运行时 | 多副本状态、租户 key、工作区、快照、遥测、限流、fallback 和超时通过测试 | 降级到单副本或切回上一配置 |
 | 安全治理 | 身份、RBAC、数据权限、Prompt Injection、密钥、脱敏、审计和 Skill 生命周期通过测试 | 禁用可疑 Skill、工具、Agent 或 provider |
 | 控制台 | 权限访问、配置审计、指标过滤、成本聚合和审计搜索通过测试 | 关闭管理写操作，仅保留只读视图 |
@@ -42,7 +42,7 @@ MVP 验收标准：
 2. 切换运行依赖：
    - 切回旧模型 provider。
    - 切回上一版配置。
-   - 回滚 Skill 到上一已批准发布版本。
+   - 按发布预案回滚 Skill 到上一已批准发布版本；当前控制台未开放可执行 rollback REST/UI。
 
 3. 保留证据：
    - 不删除工具审计。
@@ -138,6 +138,8 @@ curl -s http://localhost:8080/api/release/phase-gates
 - `HARNESS_AGENT_SNAPSHOT_STORE_TYPE=jdbc`
 - `HARNESS_AGENT_SNAPSHOT_STORE_URI=jdbc://snapshot`
 - `HARNESS_AGENT_SNAPSHOT_STORE_WIRED=true`
+
+当前可验收的生产 snapshot 后端是 JDBC；OSS/S3/MinIO 属于后续对象存储扩展，不能只配置枚举值就视为生产可用。
 
 回滚注意事项：
 
