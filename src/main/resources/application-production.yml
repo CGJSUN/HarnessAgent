@@ -19,7 +19,7 @@ harness-agent:
     schema:
       name: ${HARNESS_AGENT_DB_SCHEMA:harness_agent}
       migration-tool: flyway
-      migration-location: classpath:db/migration
+      migration-location: classpath:db/migration,classpath:db/vendor-migration/{vendor}
       version: ${HARNESS_AGENT_SCHEMA_VERSION:}
     telemetry:
       open-telemetry-export-enabled: ${HARNESS_AGENT_OTEL_ENABLED:false}
@@ -50,4 +50,4 @@ spring:
     password: ${HARNESS_AGENT_DB_PASSWORD:}
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    locations: classpath:db/migration,classpath:db/vendor-migration/{vendor}

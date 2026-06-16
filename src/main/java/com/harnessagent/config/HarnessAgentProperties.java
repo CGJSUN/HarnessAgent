@@ -1,6 +1,6 @@
 package com.harnessagent.config;
 
-import com.harnessagent.production.AgentWorkloadType;
+import com.harnessagent.production.config.AgentWorkloadType;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;

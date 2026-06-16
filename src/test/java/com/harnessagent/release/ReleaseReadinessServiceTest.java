@@ -2,7 +2,7 @@ package com.harnessagent.release;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.harnessagent.production.DurablePersistenceHealth;
+import com.harnessagent.production.health.DurablePersistenceHealth;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

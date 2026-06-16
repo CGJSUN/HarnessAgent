@@ -119,6 +119,14 @@ curl -s http://localhost:8080/api/release/phase-gates
 - `checks` 应包含 `distributed-state`、`workspace`、`telemetry`、`budget`、`timeout`、`snapshot`。
 - `failureReasons` 必须为空。
 
+DB metadata comment migration 验收：
+
+- Flyway locations 必须包含 `classpath:db/migration,classpath:db/vendor-migration/{vendor}`。
+- H2 路径由 `DurablePersistenceMigrationTest` 覆盖，确认 V1 + H2 V2 可执行，并能读取 14 张表和 126 个字段 comments。
+- MySQL 发布前需在目标 schema 执行 [durable-persistence-schema.md](durable-persistence-schema.md) 中的 `information_schema.tables` / `information_schema.columns` 查询，确认 14 张表均有 `table_comment`，且字段 comment 缺失查询无返回。
+- MySQL V2 使用 `MODIFY COLUMN ... COMMENT`，发布前需由 DBA 或 schema owner 审核字段类型、NULL 约束和 `AUTO_INCREMENT` 语义未被改变。
+- V2 只增加 metadata comments。回滚优先 roll-forward 到修正后的 V3 comment migration；除非已有数据库备份和停写窗口，不通过删除 durable 表或回退 V1 来处理 comment 文案问题。
+
 生产 profile 必填配置：
 
 - `HARNESS_AGENT_MYSQL_DSN`

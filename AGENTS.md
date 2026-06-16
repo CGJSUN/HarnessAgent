@@ -29,27 +29,28 @@ HarnessAgent 是一个企业级 Agent 平台 MVP，后端基于 Spring Boot 和 
 /
 +-- pom.xml                         # Spring Boot 后端构建文件
 +-- src/main/java/com/harnessagent
-|   +-- agent/                      # AgentScope/HarnessAgent runtime 适配
-|   +-- api/                        # REST 控制器、请求和响应模型
-|   +-- chat/                       # 聊天编排、RAG 注入、预算和遥测
+|   +-- agent/                      # AgentScope/HarnessAgent runtime 适配，按 runtime/application 分层
+|   +-- api/                        # REST 控制器、请求和响应模型，按 controller/request/response 分层
+|   +-- chat/                       # 聊天编排、RAG 注入、预算和遥测，按 domain/application 分层
 |   +-- config/                     # Spring 配置属性
-|   +-- console/                    # 管理和运维控制台视图服务
+|   +-- console/                    # 管理和运维控制台视图服务，按 application/view 分层
 |   +-- model/                      # 模型提供方抽象和实现
-|   +-- orchestration/              # 多 Agent 路由、handoff、trace、Agent-as-Tool
+|   +-- orchestration/              # 多 Agent 路由、handoff、trace、Agent-as-Tool，按 domain/application 分层
 |   +-- persistence/                # 通用持久化辅助代码
-|   +-- production/                 # 持久化状态、运行时防护、遥测、快照
-|   +-- rag/                        # 知识源、切片、检索、引用、反馈
+|   +-- production/                 # 持久化状态、运行时防护、遥测、快照，按 config/health/state/budget/telemetry/snapshot/workspace/infrastructure 分层
+|   +-- rag/                        # 知识源、切片、检索、引用、反馈，按 domain/application/retrieval/persistence 分层
 |   +-- release/                    # 发布验收和阶段门禁
 |   +-- runtime/                    # 租户/用户/Agent/会话运行时上下文映射
-|   +-- security/                   # 身份、授权、脱敏、Prompt 安全、Skill 治理
-|   +-- session/                    # 聊天消息和会话存储
-|   +-- tooling/                    # 工具注册、执行、权限、幂等、审计
+|   +-- security/                   # 身份、授权、脱敏、Prompt 安全、Skill 治理，按 domain/application/persistence 分层
+|   +-- session/                    # 聊天消息和会话存储，按 domain/persistence 分层
+|   +-- tooling/                    # 工具注册、执行、权限、幂等、审计，按 domain/application/execution/audit/persistence 分层
 +-- src/main/resources
 |   +-- application.yml             # 默认本地配置
 |   +-- application-development.yml
 |   +-- application-production.yml
 |   +-- application-test.yml
-|   +-- db/migration/               # Flyway 迁移
+|   +-- db/migration/               # Flyway 公共迁移
+|   +-- db/vendor-migration/        # Flyway 数据库专属迁移，如 H2/MySQL 注释脚本
 +-- src/test/java/com/harnessagent   # 后端测试，按生产包结构组织
 +-- web/                            # React/Vite 控制台
 +-- docs/                           # 运维和发布文档
@@ -212,12 +213,14 @@ cd web && npm run test:unit && npm run test:browser && npm run build
 
 - 目标版本是 Java 17。不要引入超过 Maven `release` 配置的语言特性。
 - 保持包边界清晰。API 模型和控制器放在 `api`，业务编排放在对应 service 包，持久化细节放在 store 类中。
+- 新增或移动类时沿用当前分层：`domain` 放纯模型和值对象，`application` 放用例服务，`persistence` 放 store 接口和实现，`infrastructure` 放外部系统或运行时实现。
 - Spring 服务优先使用构造器注入。
 - 在现有包已经使用不可变 request/result 类型时，继续保持这种风格。
 - 请求形态的非法输入使用 `IllegalArgumentException`；状态或策略拒绝使用 `IllegalStateException`。`ApiExceptionHandler` 会把它们映射为 HTTP 响应。
 - 服务命令和持久化 key 中必须显式保留 `tenantId`、`userId`、`agentId`、`sessionId`。
 - 修改受治理流程时，不要绕过 `RuntimeContextFactory`、`AuthorizationService`、`DataPermissionService`、`PromptInjectionGuard`、`BudgetLimiter` 或审计服务。
 - 密钥必须来自环境变量或 Spring 配置占位符。不要硬编码 API key、token、密码或租户凭据。
+- 新增日志必须使用 SLF4J 参数化日志和 allowlist 字段。可以记录 `tenantId`、`agentId`、状态、原因码、数量和耗时；`userId`、`sessionId`、`idempotencyKey` 等外部输入需 hash 或摘要；不要记录原始 prompt、query、工具参数、工具结果、DSN、Redis URI、snapshot 内容或 workspace 文件内容。
 
 ### 企业 Agent 约束
 
@@ -243,6 +246,7 @@ cd web && npm run test:unit && npm run test:browser && npm run build
 
 - 只为不明显的逻辑、策略判断或复杂的 Agent/RAG/工具交互添加注释。
 - 修改运维行为、发布门禁、运行时配置或回滚预期时，同步更新 `docs/`。
+- 修改 Flyway 路径、数据库 schema、表字段或 metadata comments 时，同步更新 `docs/durable-persistence-schema.md` 和 `docs/release-readiness.md`。公共 DDL 放 `db/migration`，数据库专属脚本放 `db/vendor-migration/{vendor}`，避免被公共 migration root 递归加载。
 - 修改前端启动、校验、代理或 UI 限制时，同步更新 `web/README.md`。
 
 ## 构建和部署说明

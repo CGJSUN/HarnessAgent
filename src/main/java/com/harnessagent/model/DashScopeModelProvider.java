@@ -1,7 +1,7 @@
 package com.harnessagent.model;
 
 import com.harnessagent.config.HarnessAgentProperties;
-import com.harnessagent.security.SecretStore;
+import com.harnessagent.security.persistence.SecretStore;
 import io.agentscope.core.model.DashScopeChatModel;
 import io.agentscope.core.model.Model;
 import org.springframework.stereotype.Component;

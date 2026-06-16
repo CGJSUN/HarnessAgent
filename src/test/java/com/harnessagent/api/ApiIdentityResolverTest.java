@@ -3,8 +3,8 @@ package com.harnessagent.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.harnessagent.security.IdentityProviderType;
-import com.harnessagent.security.SecurityPrincipal;
+import com.harnessagent.security.domain.IdentityProviderType;
+import com.harnessagent.security.domain.SecurityPrincipal;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;

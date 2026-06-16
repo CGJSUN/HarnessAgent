@@ -8,7 +8,7 @@ spring:
     password: ${HARNESS_AGENT_DATASOURCE_PASSWORD:}
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    locations: classpath:db/migration,classpath:db/vendor-migration/{vendor}
 
 harness-agent:
   default-agent-id: enterprise-assistant
@@ -53,8 +53,8 @@ harness-agent:
       budget-counter: local-json
     schema:
       name: ""
-      migration-tool: ""
-      migration-location: ""
+      migration-tool: flyway
+      migration-location: classpath:db/migration,classpath:db/vendor-migration/{vendor}
       version: ""
     remote-filesystem:
       root-uri: s3://harness-agent-workspaces

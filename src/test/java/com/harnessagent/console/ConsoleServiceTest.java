@@ -4,37 +4,48 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.harnessagent.config.HarnessAgentProperties;
-import com.harnessagent.production.InMemoryRuntimeTelemetry;
-import com.harnessagent.production.TelemetryEventType;
-import com.harnessagent.rag.InMemoryKnowledgeStore;
-import com.harnessagent.rag.KnowledgeRetrievalPolicy;
-import com.harnessagent.rag.KnowledgeService;
-import com.harnessagent.rag.TextChunker;
-import com.harnessagent.rag.TextTokenizer;
+import com.harnessagent.console.application.AuditSearchFilter;
+import com.harnessagent.console.application.ConsoleService;
+import com.harnessagent.console.view.AgentManagementView;
+import com.harnessagent.console.view.CostUsageReport;
+import com.harnessagent.console.view.OperationalMetricSummary;
+import com.harnessagent.console.view.ToolConfirmationView;
+import com.harnessagent.console.view.UserConsoleView;
+import com.harnessagent.production.infrastructure.InMemoryRuntimeTelemetry;
+import com.harnessagent.production.telemetry.TelemetryEventType;
+import com.harnessagent.rag.persistence.InMemoryKnowledgeStore;
+import com.harnessagent.rag.application.KnowledgeRetrievalPolicy;
+import com.harnessagent.rag.application.KnowledgeService;
+import com.harnessagent.rag.application.TextChunker;
+import com.harnessagent.rag.application.TextTokenizer;
 import com.harnessagent.runtime.RuntimeContextFactory;
-import com.harnessagent.security.AuthorizationService;
-import com.harnessagent.security.IdentityProviderType;
-import com.harnessagent.security.SecurityAuditService;
-import com.harnessagent.security.SecurityPrincipal;
-import com.harnessagent.security.SensitiveDataRedactor;
-import com.harnessagent.security.SkillGovernanceService;
-import com.harnessagent.security.SkillVersion;
-import com.harnessagent.session.ChatMessage;
-import com.harnessagent.session.InMemorySessionStore;
-import com.harnessagent.tooling.InMemoryToolStore;
-import com.harnessagent.tooling.ToolAuditPolicy;
-import com.harnessagent.tooling.ToolDefinition;
-import com.harnessagent.tooling.ToolParameterSchema;
-import com.harnessagent.tooling.ToolPermissionPolicy;
-import com.harnessagent.tooling.ToolRegistration;
-import com.harnessagent.tooling.ToolRiskLevel;
-import com.harnessagent.tooling.ToolService;
-import com.harnessagent.tooling.ToolSourceType;
+import com.harnessagent.security.application.AuthorizationService;
+import com.harnessagent.security.domain.IdentityProviderType;
+import com.harnessagent.security.application.SecurityAuditService;
+import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.application.SensitiveDataRedactor;
+import com.harnessagent.security.application.SkillGovernanceService;
+import com.harnessagent.security.domain.SkillVersion;
+import com.harnessagent.session.domain.ChatMessage;
+import com.harnessagent.session.persistence.InMemorySessionStore;
+import com.harnessagent.tooling.persistence.InMemoryToolStore;
+import com.harnessagent.tooling.domain.ToolAuditPolicy;
+import com.harnessagent.tooling.domain.ToolDefinition;
+import com.harnessagent.tooling.domain.ToolParameterSchema;
+import com.harnessagent.tooling.domain.ToolPermissionPolicy;
+import com.harnessagent.tooling.domain.ToolRegistration;
+import com.harnessagent.tooling.domain.ToolRiskLevel;
+import com.harnessagent.tooling.application.ToolService;
+import com.harnessagent.tooling.domain.ToolSourceType;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import com.harnessagent.tooling.execution.ToolExecutionCommand;
+import com.harnessagent.security.domain.Permission;
+import com.harnessagent.security.domain.ResourceAccessPolicy;
+import com.harnessagent.security.domain.ResourceType;
 
 class ConsoleServiceTest {
 
@@ -111,7 +122,7 @@ class ConsoleServiceTest {
     void auditorCanSearchAuditsWithFilters() {
         securityAuditService.record(
                 admin(),
-                com.harnessagent.security.ResourceType.AGENT,
+                com.harnessagent.security.domain.ResourceType.AGENT,
                 "agent-a",
                 "UPDATE_AGENT_PROMPT",
                 Map.of("agentId", "agent-a"));
@@ -168,7 +179,7 @@ class ConsoleServiceTest {
                 new ToolParameterSchema(Set.of("ticketId"), Set.of(), Map.of(), Set.of()),
                 ToolPermissionPolicy.allowAll(),
                 ToolAuditPolicy.standard()));
-        toolService.execute(new com.harnessagent.tooling.ToolExecutionCommand(
+        toolService.execute(new com.harnessagent.tooling.execution.ToolExecutionCommand(
                 "tenant-a",
                 "user-a",
                 "agent-a",
@@ -223,13 +234,13 @@ class ConsoleServiceTest {
         return new SecurityPrincipal("tenant-a", userId, IdentityProviderType.INTERNAL, roles, Set.of());
     }
 
-    private static com.harnessagent.security.ResourceAccessPolicy auditPolicy() {
-        return new com.harnessagent.security.ResourceAccessPolicy(
-                com.harnessagent.security.ResourceType.AUDIT,
+    private static com.harnessagent.security.domain.ResourceAccessPolicy auditPolicy() {
+        return new com.harnessagent.security.domain.ResourceAccessPolicy(
+                com.harnessagent.security.domain.ResourceType.AUDIT,
                 "tenant-a",
                 Set.of(),
                 Set.of("admin"),
                 Set.of(),
-                Set.of(com.harnessagent.security.Permission.SEARCH_AUDIT));
+                Set.of(com.harnessagent.security.domain.Permission.SEARCH_AUDIT));
     }
 }

@@ -1,7 +1,7 @@
 package com.harnessagent.api;
 
-import com.harnessagent.security.IdentityProviderType;
-import com.harnessagent.security.SecurityPrincipal;
+import com.harnessagent.security.domain.IdentityProviderType;
+import com.harnessagent.security.domain.SecurityPrincipal;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;

@@ -1,7 +1,7 @@
 package com.harnessagent.release;
 
-import com.harnessagent.production.DurablePersistenceHealth;
-import com.harnessagent.production.DurablePersistenceHealthService;
+import com.harnessagent.production.health.DurablePersistenceHealth;
+import com.harnessagent.production.health.DurablePersistenceHealthService;
 import java.util.List;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
