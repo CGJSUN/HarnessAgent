@@ -6,10 +6,8 @@ import com.harnessagent.production.state.AgentStateStore;
 import com.harnessagent.production.state.AgentStateStoreFactory;
 import com.harnessagent.production.health.ProductionRuntimeValidator;
 import com.harnessagent.production.state.StateStorePlan;
-import com.harnessagent.production.state.StateStoreType;
 import com.harnessagent.runtime.RuntimeContextScope;
 import io.agentscope.core.agent.RuntimeContext;
-import io.agentscope.core.state.JsonFileAgentStateStore;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -30,9 +28,6 @@ public class AgentSessionFactory {
 
     public io.agentscope.core.state.AgentStateStore stateStore(RuntimeContextScope context) {
         StateStorePlan plan = runtimeValidator.stateStorePlan();
-        if (plan.type() == StateStoreType.LOCAL_JSON) {
-            return new JsonFileAgentStateStore(properties.getState().getLocalDirectory());
-        }
         AgentStateStore store = stateStoreFactory.create(plan);
         return new AgentScopeStateStoreAdapter(context, store);
     }

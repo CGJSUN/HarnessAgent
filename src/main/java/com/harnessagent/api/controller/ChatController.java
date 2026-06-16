@@ -4,6 +4,7 @@ import com.harnessagent.api.ApiIdentityResolver;
 import com.harnessagent.api.request.ChatRequest;
 import com.harnessagent.api.response.ChatResponse;
 import com.harnessagent.api.response.StreamEventResponse;
+import com.harnessagent.api.response.StreamEventKind;
 import com.harnessagent.agent.runtime.AgentRuntimeEvent;
 import com.harnessagent.chat.domain.ChatCommand;
 import com.harnessagent.chat.domain.ChatResult;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
 import reactor.core.Disposable;
 
 @RestController
@@ -43,7 +45,11 @@ public class ChatController {
             @RequestBody ChatRequest request) {
         ChatResult result = chatService.chat(toCommand(headers, request)).block();
         return new ChatResponse(
+                result.messageId(),
+                result.sessionId(),
                 result.message(),
+                result.contentBlocks(),
+                result.executionSummary(),
                 result.runtimeUserId(),
                 result.runtimeSessionId(),
                 result.knowledgeBacked(),
@@ -56,10 +62,14 @@ public class ChatController {
             @RequestHeader Map<String, String> headers,
             @RequestBody ChatRequest request) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MILLIS);
-        Disposable subscription = chatService.stream(toCommand(headers, request))
+        Disposable subscription = Flux.defer(() -> chatService.stream(toCommand(headers, request)))
+                .onErrorResume(error -> Flux.just(AgentRuntimeEvent.error(errorMessage(error))))
                 .subscribe(
                         event -> send(emitter, event),
-                        emitter::completeWithError,
+                        error -> {
+                            sendError(emitter, error);
+                            emitter.complete();
+                        },
                         emitter::complete);
         emitter.onTimeout(subscription::dispose);
         emitter.onCompletion(subscription::dispose);
@@ -88,10 +98,12 @@ public class ChatController {
 
     private static void send(SseEmitter emitter, AgentRuntimeEvent event) {
         try {
+            String type = event.type().name().toLowerCase();
             emitter.send(SseEmitter.event()
-                    .name(event.type().name().toLowerCase())
+                    .name(type)
                     .data(new StreamEventResponse(
-                            event.type().name().toLowerCase(),
+                            type,
+                            StreamEventKind.from(event.type()).name(),
                             event.content(),
                             event.terminal(),
                             (String) event.attributes().get("noAnswerReason"),
@@ -100,6 +112,17 @@ public class ChatController {
         } catch (IOException exception) {
             emitter.completeWithError(exception);
         }
+    }
+
+    private static void sendError(SseEmitter emitter, Throwable error) {
+        send(emitter, AgentRuntimeEvent.error(errorMessage(error)));
+    }
+
+    private static String errorMessage(Throwable error) {
+        if (error == null || error.getMessage() == null || error.getMessage().isBlank()) {
+            return "stream failed";
+        }
+        return error.getMessage();
     }
 
     @SuppressWarnings("unchecked")

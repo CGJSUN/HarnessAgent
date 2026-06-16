@@ -103,6 +103,7 @@ export function createSseParser(onEvent: (event: StreamEvent) => void) {
       const parsed = JSON.parse(rawData) as Partial<StreamEvent>;
       onEvent({
         type: parsed.type || eventName || "message",
+        kind: parsed.kind,
         content: parsed.content || "",
         terminal: Boolean(parsed.terminal),
         noAnswerReason: parsed.noAnswerReason,

@@ -7,6 +7,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import com.harnessagent.production.config.AgentWorkloadType;
+import com.harnessagent.production.config.ProductionRuntimeProperties;
+import com.harnessagent.production.infrastructure.RuntimeTimeoutGuard;
+import com.harnessagent.production.sandbox.SandboxExecutionMode;
+import com.harnessagent.production.sandbox.SandboxExecutionPolicy;
+import com.harnessagent.production.sandbox.SandboxExecutionPolicyService;
+import com.harnessagent.production.sandbox.SandboxExecutionRequest;
+import com.harnessagent.production.sandbox.SandboxExecutionResult;
+import com.harnessagent.production.sandbox.SandboxExecutor;
+import com.harnessagent.production.sandbox.SandboxExecutorRegistry;
+import com.harnessagent.production.telemetry.RuntimeTelemetry;
+import com.harnessagent.security.application.PromptInjectionGuard;
 import com.harnessagent.tooling.application.ToolService;
 import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolAuditPolicy;
@@ -246,6 +258,47 @@ class ToolServiceTest {
         assertThat(audit.toolName()).isEqualTo("mcp.finance.lookup");
     }
 
+    @Test
+    void sandboxedShellToolRequiresConfirmationBeforeExecution() {
+        ToolDefinition tool = service.registerTool(shellRegistration());
+
+        ToolExecutionResult result = service.execute(command(
+                tool,
+                Map.of("command", "pwd"),
+                false,
+                null));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.PENDING_CONFIRMATION);
+        assertThat(result.approvalRequired()).isTrue();
+        assertThat(result.operationSummary())
+                .containsEntry("sandboxRequired", true)
+                .containsEntry("workloadType", AgentWorkloadType.SHELL.name());
+        assertThat(executor.invocations).isZero();
+    }
+
+    @Test
+    void confirmedSandboxedShellToolUsesSandboxExecutor() {
+        RecordingSandboxExecutor sandboxExecutor = new RecordingSandboxExecutor();
+        ToolService sandboxedService = sandboxedToolService(sandboxExecutor);
+        ToolDefinition tool = sandboxedService.registerTool(shellRegistration());
+
+        ToolExecutionResult result = sandboxedService.execute(command(
+                tool,
+                Map.of("command", "pwd"),
+                true,
+                null));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
+        assertThat(executor.invocations).isZero();
+        assertThat(sandboxExecutor.invocations).isEqualTo(1);
+        assertThat(sandboxExecutor.lastRequest.workloadType()).isEqualTo(AgentWorkloadType.SHELL);
+        assertThat(sandboxExecutor.lastRequest.command()).isEqualTo("pwd");
+        assertThat(result.output()).containsEntry("stdout", "sandbox-ok");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sandbox = (Map<String, Object>) result.output().get("sandbox");
+        assertThat(sandbox).containsEntry("mode", SandboxExecutionMode.LOCAL_PROCESS.name());
+    }
+
     private static ToolRegistration readOnlyRegistration() {
         return new ToolRegistration(
                 "tenant-a",
@@ -282,6 +335,36 @@ class ToolServiceTest {
                         Set.of()),
                 permissionPolicy(),
                 ToolAuditPolicy.standard());
+    }
+
+    private static ToolRegistration shellRegistration() {
+        return new ToolRegistration(
+                "tenant-a",
+                "shell.run",
+                "Run an approved shell command in the personal workspace sandbox.",
+                "Local Shell",
+                "owner-a",
+                ToolSourceType.INTERNAL,
+                "shell://local",
+                ToolRiskLevel.READ_ONLY,
+                false,
+                true,
+                schema(Set.of("command"), Set.of("arguments", "environment"), Map.of(), Set.of()),
+                permissionPolicy(),
+                ToolAuditPolicy.standard());
+    }
+
+    private static ToolService sandboxedToolService(SandboxExecutor sandboxExecutor) {
+        ProductionRuntimeProperties properties = new ProductionRuntimeProperties();
+        InMemoryToolStore store = new InMemoryToolStore();
+        return new ToolService(
+                store,
+                List.of(new CountingToolExecutor()),
+                new RuntimeTimeoutGuard(properties),
+                RuntimeTelemetry.noop(),
+                new PromptInjectionGuard(),
+                new SandboxExecutionPolicyService(properties),
+                new SandboxExecutorRegistry(List.of(sandboxExecutor)));
     }
 
     private static ToolParameterSchema schema(
@@ -339,6 +422,24 @@ class ToolServiceTest {
             output.put("email", "person@example.com");
             output.put("invocation", invocations);
             return output;
+        }
+    }
+
+    private static class RecordingSandboxExecutor implements SandboxExecutor {
+
+        private int invocations;
+        private SandboxExecutionRequest lastRequest;
+
+        @Override
+        public SandboxExecutionMode mode() {
+            return SandboxExecutionMode.LOCAL_PROCESS;
+        }
+
+        @Override
+        public SandboxExecutionResult execute(SandboxExecutionPolicy policy, SandboxExecutionRequest request) {
+            invocations++;
+            lastRequest = request;
+            return SandboxExecutionResult.succeeded(0, "sandbox-ok", "", Map.of("runner", "test"));
         }
     }
 }

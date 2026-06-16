@@ -1,6 +1,8 @@
-# Harness Agent Web Console
+# Harness Agent Personal Workbench
 
-Browser console for the Spring Boot Harness Agent backend.
+Browser workbench for the Spring Boot Harness Agent backend.
+
+The product target is now the personal edition: a single owner works with personal Agents, sessions, workspace files, memory/RAG, tools, skills, traces, and local diagnostics. The earlier enterprise console concepts, including tenant switching, RBAC roles, admin/ops views, audit reporting, and release gates, are legacy compatibility or developer diagnostics. They should not be treated as the main user journey for new work.
 
 ## Local Development
 
@@ -27,25 +29,25 @@ npm run test:browser
 npm run build
 ```
 
-Browser tests mock backend API responses and cover:
+Browser tests mock backend API responses and currently cover both personal-facing workbench behavior and legacy console compatibility:
 
 - workbench load, session history, RAG citation and no-answer states
 - streaming chat send, cancellation, and subsequent recovery
-- one admin view and one operations/audit workflow
+- one legacy admin view and one legacy operations/audit workflow
 - desktop and mobile screenshots in `test-results/`
 
 ## Production Hosting
 
-The built assets in `web/dist/` can be served by Spring Boot static resources or by an enterprise gateway on the same origin as the backend API. Production identity and role headers must be injected by trusted infrastructure, not by arbitrary browser code.
+The built assets in `web/dist/` can be served by Spring Boot static resources or by a same-origin gateway. Personal edition identity should come from trusted local or host infrastructure. Legacy production identity and role headers, when enabled for compatibility, must be injected by trusted infrastructure and not by arbitrary browser code.
 
 ## Identity Assumptions
 
-The local identity panel sends tenant, user, roles, and departments through both the backend request contract and trusted-header shape:
+The current local identity panel is a legacy development helper. It sends tenant, user, roles, and departments through both the backend request contract and trusted-header shape:
 
 - `tenantId`, `userId`, `roles`, `departments` in JSON bodies or query strings
 - `X-Tenant-Id`, `X-User-Id`, `X-Roles`, `X-Departments`, `X-Identity-Provider` headers
 
-If trusted headers are present, the backend requires request tenant/user values to match those headers. The UI displays backend authorization failures even when they are returned as conflict-style errors instead of `401` or `403`.
+If trusted headers are present, the backend requires request tenant/user values to match those headers. In personal mode, tenant should be treated as the compatibility scope `personal`, user should be treated as the owner, and roles/departments should not be required for the primary workflow. The UI displays backend authorization failures even when they are returned as conflict-style errors instead of `401` or `403`.
 
 ## Backend Limitations Reflected In UI
 
@@ -56,3 +58,4 @@ If trusted headers are present, the backend requires request tenant/user values 
 - Tool registration and authorization remain under `/api/tools`; the console view only toggles existing tools.
 - `GET /api/orchestration/agents/{agentId}/tool` registers an agent as a tool and is not used for passive UI loading.
 - Local development may still use H2, local-json, or in-memory stores. Durable production persistence depends on the production profile and MySQL/JDBC, telemetry, optional Redis, and snapshot wiring.
+- Personal workbench IA is not complete yet. New UI work should prioritize chat, plans, workspace files, memory/RAG, tools, skills, Agent configuration, and trace diagnostics before expanding legacy admin/ops/release screens.

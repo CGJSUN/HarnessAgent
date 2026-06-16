@@ -11,11 +11,23 @@ spring:
     locations: classpath:db/migration,classpath:db/vendor-migration/{vendor}
 
 harness-agent:
-  default-agent-id: enterprise-assistant
+  default-agent-id: personal-assistant
   default-provider: echo
   state:
     local-directory: .harness-agent/sessions
   agents:
+    personal-assistant:
+      name: personal-assistant
+      system-prompt: 你是个人 Agent 助手，优先服务当前用户的个人工作区、个人记忆、工具确认和长期任务。
+      model-provider: echo
+      model-name: echo-local
+      workspace: .harness-agent/workspaces/personal-assistant
+      workload-type: office
+      compaction: true
+      max-iters: 3
+      budget:
+        request-limit: 1000
+        token-limit: 1000000
     enterprise-assistant:
       name: enterprise-assistant
       system-prompt: 你是企业助手，回答要准确、克制，并遵守企业权限与工具边界。
@@ -32,7 +44,12 @@ harness-agent:
     dashscope:
       type: dashscope
       model-name: qwen-plus
-      api-key-env: DASHSCOPE_API_KEY
+      api-key-ref: env:DASHSCOPE_API_KEY
+    openai-compatible:
+      type: openai-compatible
+      model-name: gpt-4o-mini
+      api-key-ref: env:OPENAI_API_KEY
+      base-url: https://api.openai.com/v1
   production:
     profile: development
     replica-count: 1

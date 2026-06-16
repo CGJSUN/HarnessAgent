@@ -18,13 +18,18 @@ public class BudgetLimiter {
     }
 
     public BudgetDecision tryConsume(BudgetScope scope, long tokens) {
+        return tryConsume(scope, tokens, null);
+    }
+
+    public BudgetDecision tryConsume(BudgetScope scope, long tokens, BudgetLimit agentLimit) {
         BudgetCounter fullScope = null;
         for (String key : keys(scope)) {
             BudgetCounter counter = counterStore.increment(key, tokens);
-            if (counter.requests() > properties.getBudget().getRequestLimit()) {
+            BudgetLimit limit = limitFor(key, agentLimit);
+            if (counter.requests() > limit.requestLimit()) {
                 return new BudgetDecision(false, key + ":request_limit_exceeded", counter.requests(), counter.tokens());
             }
-            if (counter.tokens() > properties.getBudget().getTokenLimit()) {
+            if (counter.tokens() > limit.tokenLimit()) {
                 return new BudgetDecision(false, key + ":token_budget_exceeded", counter.requests(), counter.tokens());
             }
             if (key.equals("scope:" + scope.key())) {
@@ -41,5 +46,14 @@ public class BudgetLimiter {
                 "agent:" + scope.tenantId() + ":" + scope.agentId(),
                 "provider:" + scope.providerId(),
                 "scope:" + scope.key());
+    }
+
+    private BudgetLimit limitFor(String key, BudgetLimit agentLimit) {
+        if (agentLimit != null && (key.startsWith("agent:") || key.startsWith("scope:"))) {
+            return agentLimit;
+        }
+        return new BudgetLimit(
+                properties.getBudget().getRequestLimit(),
+                properties.getBudget().getTokenLimit());
     }
 }

@@ -6,6 +6,7 @@ import java.util.Map;
 
 public record StreamEventResponse(
         String type,
+        String kind,
         String content,
         boolean terminal,
         String noAnswerReason,
@@ -13,10 +14,11 @@ public record StreamEventResponse(
         Map<String, Object> metadata) {
 
     public StreamEventResponse(String type, String content, boolean terminal) {
-        this(type, content, terminal, null, List.of(), Map.of());
+        this(type, StreamEventKind.fromTypeName(type).name(), content, terminal, null, List.of(), Map.of());
     }
 
     public StreamEventResponse {
+        kind = kind == null || kind.isBlank() ? StreamEventKind.fromTypeName(type).name() : kind;
         citations = citations == null ? List.of() : List.copyOf(citations);
         metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
     }

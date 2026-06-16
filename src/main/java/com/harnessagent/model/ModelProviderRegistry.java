@@ -23,8 +23,21 @@ public class ModelProviderRegistry {
         return provider;
     }
 
+    public ModelProvider requireProvider(ModelSelection selection) {
+        String providerKey = firstNonBlank(selection.providerType(), selection.providerId());
+        ModelProvider provider = providers.get(providerKey);
+        if (provider == null) {
+            throw new IllegalArgumentException("Unknown model provider: " + providerKey);
+        }
+        return provider;
+    }
+
     private static Map<String, ModelProvider> toMap(List<ModelProvider> providers) {
         return providers.stream()
                 .collect(Collectors.toUnmodifiableMap(ModelProvider::id, Function.identity()));
+    }
+
+    private static String firstNonBlank(String first, String fallback) {
+        return first == null || first.isBlank() ? fallback : first.trim();
     }
 }

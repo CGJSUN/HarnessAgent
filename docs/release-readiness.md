@@ -1,35 +1,39 @@
-# Enterprise Agent Platform 发布与验收手册
+# HarnessAgent 个人版发布与验收手册
 
 ## MVP 业务场景
 
-首个 MVP 业务场景选择：企业制度知识助手。
+当前产品目标是个人版完整 Agent。首个个人版验收场景选择：个人知识和工作区助手。
 
 目标用户：
 
-- 普通员工查询制度、流程和 FAQ。
-- 业务专家维护知识源。
-- 管理员配置 Agent、工具和权限。
-- 审计员查看高风险操作和配置变更。
+- 个人 owner 通过聊天和工作区完成资料整理、文件处理、知识问答和任务规划。
+- 个人 owner 管理本地知识源、记忆、工具、技能和 Agent 配置。
+- 维护者检查本地/生产配置、持久化、沙箱、trace、最小审计和回滚能力。
 
 MVP 验收标准：
 
 - 用户可以通过 `POST /api/chat` 和 `POST /api/chat/stream` 完成制度问答。
 - RAG 启用时，回答必须带引用来源；无可访问证据时返回无答案。
-- 不同租户、用户、Agent、会话之间不能共享状态、历史、知识、工具结果或审计视图。
-- 高风险工具需要确认或审批，且所有拒绝、确认、执行和幂等冲突可审计。
-- 控制台能够展示会话、知识、工具、Agent、Skill、指标、成本和审计视图。
+- 不同 owner、Agent、会话和工作区之间不能共享状态、历史、知识、记忆、工具授权或 trace。
+- 高风险工具、技能、代码、Shell、SQL、外部写操作和网络副作用需要个人确认或沙箱策略。
+- 工作台能够展示聊天、计划、工作区文件、知识/记忆、工具确认、技能、Agent 配置和 trace。
+- 早期企业租户、企业 RBAC、运营报表、审计报表和发布门禁只作为遗留兼容或诊断，不作为个人版主验收目标。
 
-## 阶段门禁
+## 个人版阶段验收
 
 | 阶段 | 通过条件 | 回滚开关 |
 |---|---|---|
-| MVP Core | 聊天、会话隔离、流式响应和模型抽象通过测试 | 禁用新 Agent 或切回 echo provider |
-| RAG | 文档接入、权限过滤、引用、失效和无答案通过测试 | 关闭 `knowledgeEnabled` 或禁用知识源 |
-| 工具调用 | 权限拒绝、参数拒绝、确认、幂等、审计和 MCP/Agent 工具治理通过测试；MCP 当前验收的是受治理工具来源，不包含真实外部 MCP client | 禁用单个工具或全部高风险工具 |
-| 生产运行时 | 多副本状态、租户 key、工作区、快照、遥测、限流、fallback 和超时通过测试 | 降级到单副本或切回上一配置 |
-| 安全治理 | 身份、RBAC、数据权限、Prompt Injection、密钥、脱敏、审计和 Skill 生命周期通过测试 | 禁用可疑 Skill、工具、Agent 或 provider |
-| 控制台 | 权限访问、配置审计、指标过滤、成本聚合和审计搜索通过测试 | 关闭管理写操作，仅保留只读视图 |
-| 多 Agent | 路由、Agent-as-Tool、上下文边界、handoff、trace 和升级通过测试 | 禁用 Supervisor，回退单 Agent |
+| Personal Core | owner/agent/session 隔离、非流式/流式聊天、模型抽象、预算、超时和 fallback 通过测试 | 禁用新个人 Agent 或切回 echo provider |
+| Workspace | 工作区初始化、路径拒绝、文件引用、快照恢复、计划模式、channel 和压缩通过测试 | 禁用工作区写操作或切回上一 workspace backend |
+| Memory/RAG | 个人知识源、记忆、索引状态、引用来源、无答案、删除和导出通过测试 | 关闭 RAG provider 或禁用目标知识源 |
+| Tool/HITL | 参数拒绝、只读允许、写操作确认、HITL 恢复、结构化结果、幂等和最小审计通过测试 | 禁用单个工具或全部高风险工具 |
+| Skill | 本地技能仓库、元数据、加载、权限、启停、升级、回滚和验证通过测试 | 禁用目标 Skill 或锁定上一版本 |
+| Multi-Agent | 子 Agent 规格、路由、后台委派、Agent-as-Tool、上下文边界、trace 和失败降级通过测试 | 禁用 Supervisor，回退单 Agent |
+| Workbench | 聊天、计划、文件、知识/记忆、工具、技能、配置、trace 在桌面和移动视口通过测试 | 隐藏新工作台模块或回退旧 console |
+
+## 遗留 release gate 处理
+
+`/api/release/scenario` 和 `/api/release/phase-gates` 仍可用于检查早期企业 MVP 和生产运行时 wiring，但它们不是个人版完整 Agent 的唯一验收依据。个人版发布必须同时参考 [AgentScope Java v2 覆盖矩阵](agentscope-java-v2-coverage.md) 和 [企业到个人版迁移盘点](enterprise-to-personal-migration-inventory.md)。
 
 ## 部署回滚流程
 
@@ -45,42 +49,42 @@ MVP 验收标准：
    - 按发布预案回滚 Skill 到上一已批准发布版本；当前控制台未开放可执行 rollback REST/UI。
 
 3. 保留证据：
-   - 不删除工具审计。
-   - 不删除安全审计。
+   - 不删除工具最小审计。
+   - 不删除安全最小审计。
    - 不删除编排 trace。
    - 标记回滚原因、操作者和时间。
 
 4. 验证恢复：
-   - 重新执行租户隔离、权限过滤、高风险确认、审计搜索和健康检查。
+   - 重新执行 owner/Agent/session 隔离、工作区路径拒绝、高风险确认、trace 和健康检查。
    - 确认新请求不再进入被回滚能力。
 
 ## 端到端验收清单
 
-- 租户隔离：
-  - tenant-a 的会话、知识源、工具审计和安全审计不能被 tenant-b 看到。
+- 个人隔离：
+  - owner-a 的会话、知识源、记忆、工具授权和 trace 不能被 owner-b 看到。
 
-- 权限过滤：
-  - 普通员工不能访问管理员控制台。
-  - 非审计员不能搜索审计。
-  - 无部门权限用户不能看到受限知识。
+- 个人授权：
+  - 工作区外路径访问被拒绝。
+  - 禁用工具和技能不能被 Agent 执行。
+  - 无授权知识源和记忆不能进入 prompt 或检索结果。
 
 - 高风险确认：
   - 高风险工具未确认时返回 `PENDING_CONFIRMATION`。
   - 确认后执行并记录审批人或确认上下文。
   - 同 idempotency key 同参数复用结果，不同参数返回冲突。
 
-- 审计可追溯：
-  - Agent Prompt 更新、工具确认、Skill 发布、编排升级都有审计记录。
-  - 审计记录中的 token、邮箱、手机号和 API key 已脱敏。
+- 最小审计可追溯：
+  - Agent 配置更新、工具确认、Skill 版本变更、多 Agent 委派都有脱敏记录。
+  - 审计记录中的 token、邮箱、手机号、API key、prompt、工具原始结果和文件内容不会明文落库。
 
-- 运营可观测：
-  - API、Agent、RAG、工具、Token、失败、耗时和反馈能进入指标视图。
-  - 成本报表能按租户、Agent 和 provider 聚合。
+- Trace 可观测：
+  - API、Agent、RAG、工具、子 Agent、Token、失败、耗时和反馈能进入个人 trace 或诊断视图。
+  - 用量能按 owner、Agent 和 provider 聚合；租户成本报表只作为遗留兼容。
 
 ## 发布前命令
 
 ```bash
-openspec validate enterprise-agent-platform
+openspec validate build-personal-agentscope-agent
 mvn test
 ```
 
@@ -119,13 +123,13 @@ curl -s http://localhost:8080/api/release/phase-gates
 - `checks` 应包含 `distributed-state`、`workspace`、`telemetry`、`budget`、`timeout`、`snapshot`。
 - `failureReasons` 必须为空。
 
-DB metadata comment migration 验收：
+DB schema and metadata comment migration 验收：
 
 - Flyway locations 必须包含 `classpath:db/migration,classpath:db/vendor-migration/{vendor}`。
-- H2 路径由 `DurablePersistenceMigrationTest` 覆盖，确认 V1 + H2 V2 可执行，并能读取 14 张表和 126 个字段 comments。
+- H2 路径由 `DurablePersistenceMigrationTest` 覆盖，确认公共 V1/V3 与 H2 V2/V4 可执行，并能读取 14 张表和 127 个字段 comments。
 - MySQL 发布前需在目标 schema 执行 [durable-persistence-schema.md](durable-persistence-schema.md) 中的 `information_schema.tables` / `information_schema.columns` 查询，确认 14 张表均有 `table_comment`，且字段 comment 缺失查询无返回。
-- MySQL V2 使用 `MODIFY COLUMN ... COMMENT`，发布前需由 DBA 或 schema owner 审核字段类型、NULL 约束和 `AUTO_INCREMENT` 语义未被改变。
-- V2 只增加 metadata comments。回滚优先 roll-forward 到修正后的 V3 comment migration；除非已有数据库备份和停写窗口，不通过删除 durable 表或回退 V1 来处理 comment 文案问题。
+- MySQL vendor comment migration 使用 `MODIFY COLUMN ... COMMENT`，发布前需由 DBA 或 schema owner 审核字段类型、NULL 约束和 `AUTO_INCREMENT` 语义未被改变。
+- V2/V4 只增加 metadata comments。回滚优先 roll-forward 到后续 vendor comment migration；除非已有数据库备份和停写窗口，不通过删除 durable 表、回退 V1 或回退 V3 DDL 来处理 comment 文案问题。
 
 生产 profile 必填配置：
 

@@ -4,6 +4,7 @@ public enum AgentRuntimeEventType {
     STATUS,
     DELTA,
     TOOL,
+    SUBAGENT,
     ERROR,
     DONE
 }

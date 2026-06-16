@@ -1,15 +1,21 @@
 # Durable Persistence Schema
 
-This document describes the durable persistence schema created by `V1__durable_persistence.sql` and documented by vendor-specific V2 comment migrations.
+This document describes the durable persistence schema created by `V1__durable_persistence.sql` and incremental schema migrations such as `V3__session_message_content_blocks.sql`. Vendor-specific comment migrations document the schema with V2 baseline comments and later V4 column comments.
+
+## Personal Edition Interpretation
+
+HarnessAgent now targets the personal edition. The existing durable schema still keeps enterprise-era `tenant_id`, `user_id`, `agent_id`, and `session_id` columns to avoid destructive migrations and to preserve state isolation. In personal mode, `tenant_id` is a compatibility isolation key, normally mapped to the literal `personal`, and `user_id` represents the personal owner. AgentScope-facing runtime identity is derived as `personal:<ownerId>`.
+
+Enterprise RBAC, department ACLs, audit reporting, operations dashboards, and release gates are legacy compatibility concepts. New personal features should treat these tables as owner/agent/session/workspace scoped records unless a future migration explicitly introduces new column names.
 
 Flyway locations:
 
 - Common DDL: `classpath:db/migration`
 - Vendor comments: `classpath:db/vendor-migration/{vendor}`
-- H2 comments: `src/main/resources/db/vendor-migration/h2/V2__durable_persistence_comments.sql`
-- MySQL comments: `src/main/resources/db/vendor-migration/mysql/V2__durable_persistence_comments.sql`
+- H2 comments: `src/main/resources/db/vendor-migration/h2/V2__durable_persistence_comments.sql`, `src/main/resources/db/vendor-migration/h2/V4__session_message_content_blocks_comments.sql`
+- MySQL comments: `src/main/resources/db/vendor-migration/mysql/V2__durable_persistence_comments.sql`, `src/main/resources/db/vendor-migration/mysql/V4__session_message_content_blocks_comments.sql`
 
-The V2 scripts add metadata only. They must not store prompt text, retrieval evidence, tool payloads, DSNs, Redis URIs, snapshot payloads, or workspace file data in comments.
+The V2 and V4 scripts add metadata only. They must not store prompt text, retrieval evidence, tool payloads, DSNs, Redis URIs, snapshot payloads, or workspace file data in comments.
 
 ## Table Dictionary
 
@@ -30,11 +36,22 @@ The V2 scripts add metadata only. They must not store prompt text, retrieval evi
 | `ha_tool_idempotency_records` | Idempotency records for mutating tool execution. | `idempotency_key` |
 | `ha_telemetry_events` | Runtime telemetry events. | `tenant_id`, `user_id`, `agent_id`, `occurred_at` |
 
+Personal edition mapping:
+
+| Stored dimension | Personal meaning |
+|---|---|
+| `tenant_id` | Compatibility scope, normally the literal `personal` |
+| `user_id` | Owner id |
+| `agent_id` | Personal Agent id |
+| `session_id` | Personal conversation or task session id |
+| `owner_id` | Owner id for knowledge source ownership |
+| role/department JSON fields | Legacy compatibility for enterprise ACLs; personal flows should not require them |
+
 ## Field Dictionary
 
 | Table | Fields |
 |---|---|
-| `ha_session_messages` | `id`: message id; `tenant_id`: tenant isolation key; `user_id`: user isolation key; `agent_id`: agent isolation key; `session_id`: conversation isolation key; `role`: message role; `content`: persisted message text; `created_at`: creation timestamp. |
+| `ha_session_messages` | `id`: message id; `tenant_id`: tenant isolation key; `user_id`: user isolation key; `agent_id`: agent isolation key; `session_id`: conversation isolation key; `role`: message role; `content`: legacy persisted text projection; `content_blocks_json`: structured ContentBlock JSON for text, file, media, model thinking, and tool result content; `created_at`: creation timestamp. |
 | `ha_security_audit` | `id`: audit id; `occurred_at`: event timestamp; `tenant_id`: tenant isolation key; `user_id`: user associated with the action; `resource_type`: governed resource category; `resource_id`: governed resource id; `action`: audited action; `details_json`: structured audit details JSON text. |
 | `ha_budget_counters` | `counter_key`: stable counter key; `tenant_id`: tenant isolation key; `user_id`: user isolation key; `agent_id`: agent isolation key; `resource_id`: budgeted provider or resource; `requests`: consumed requests; `tokens`: consumed token estimate; `updated_at`: last update timestamp. |
 | `ha_agent_state` | `state_key`: stable state key; `tenant_id`: tenant isolation key; `user_id`: user isolation key; `agent_id`: agent isolation key; `session_id`: session isolation key; `scope`: AgentScope memory or state scope; `state_value`: serialized state text; `updated_at`: last update timestamp. |

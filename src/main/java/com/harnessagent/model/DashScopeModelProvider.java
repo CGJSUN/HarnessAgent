@@ -24,12 +24,21 @@ public class DashScopeModelProvider implements ModelProvider {
 
     @Override
     public Model createModel(String requestedModelName) {
+        return createModel(new ModelProviderRequest(id(), requestedModelName, null));
+    }
+
+    @Override
+    public Model createModel(ModelProviderRequest request) {
+        String providerId = request == null || request.providerId() == null || request.providerId().isBlank()
+                ? id()
+                : request.providerId().trim();
         HarnessAgentProperties.ModelProviderDefinition definition =
-                properties.requireModelProvider(id());
-        String apiKey = resolveApiKey(definition);
+                properties.requireModelProvider(providerId);
+        String apiKey = resolveApiKey(definition, request);
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("DashScope API key is not configured");
         }
+        String requestedModelName = request == null ? null : request.modelName();
         String modelName = requestedModelName == null || requestedModelName.isBlank()
                 ? definition.getModelName()
                 : requestedModelName;
@@ -39,7 +48,16 @@ public class DashScopeModelProvider implements ModelProvider {
                 .build();
     }
 
-    private String resolveApiKey(HarnessAgentProperties.ModelProviderDefinition definition) {
+    private String resolveApiKey(
+            HarnessAgentProperties.ModelProviderDefinition definition,
+            ModelProviderRequest request) {
+        String requestRef = request == null ? null : request.apiKeyRef();
+        if (requestRef != null && !requestRef.isBlank()) {
+            return secretStore.resolve(requestRef.trim()).orElse(null);
+        }
+        if (definition.getApiKeyRef() != null && !definition.getApiKeyRef().isBlank()) {
+            return secretStore.resolve(definition.getApiKeyRef().trim()).orElse(null);
+        }
         if (definition.getApiKey() != null && !definition.getApiKey().isBlank()) {
             return secretStore.resolve(definition.getApiKey())
                     .orElse(definition.getApiKey());

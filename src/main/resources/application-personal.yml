@@ -1,0 +1,35 @@
+harness-agent:
+  default-agent-id: personal-assistant
+  state:
+    local-directory: .harness-agent/personal/sessions
+  agents:
+    personal-assistant:
+      name: personal-assistant
+      system-prompt: 你是个人 Agent 助手，优先服务当前用户的个人工作区、个人记忆、工具确认和长期任务。
+      model-provider: echo
+      model-name: echo-local
+      workspace: .harness-agent/personal/workspaces/personal-assistant
+      workload-type: office
+      compaction: true
+      max-iters: 3
+      budget:
+        request-limit: 1000
+        token-limit: 1000000
+  production:
+    profile: development
+    state-store:
+      type: local-json
+      local-directory: .harness-agent/personal/sessions
+      durable-implementation-wired: false
+      implementation-name: local-json-personal
+    durable-stores:
+      session: local-json
+      knowledge: local-json
+      tool: local-json
+      audit: local-json
+      telemetry: local-json
+      budget-counter: local-json
+    snapshot-store:
+      type: none
+      uri: ""
+      implementation-wired: false

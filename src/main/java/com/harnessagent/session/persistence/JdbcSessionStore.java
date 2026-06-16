@@ -2,6 +2,10 @@ package com.harnessagent.session.persistence;
 
 import com.harnessagent.persistence.DurableStoreCapability;
 import com.harnessagent.persistence.DurableBackendType;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.harnessagent.chat.domain.ContentBlock;
+import com.harnessagent.persistence.JsonColumn;
 import com.harnessagent.runtime.RuntimeContextScope;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -22,10 +26,18 @@ import com.harnessagent.session.domain.SessionSummary;
 @Profile("production")
 public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
 
+    private static final TypeReference<List<ContentBlock>> CONTENT_BLOCKS = new TypeReference<>() {};
+
     private final NamedParameterJdbcTemplate jdbc;
+    private final ObjectMapper objectMapper;
 
     public JdbcSessionStore(NamedParameterJdbcTemplate jdbc) {
+        this(jdbc, new ObjectMapper().findAndRegisterModules());
+    }
+
+    public JdbcSessionStore(NamedParameterJdbcTemplate jdbc, ObjectMapper objectMapper) {
         this.jdbc = jdbc;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -37,9 +49,9 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
     public void appendMessage(RuntimeContextScope context, ChatMessage message) {
         jdbc.update("""
                 insert into ha_session_messages (
-                    id, tenant_id, user_id, agent_id, session_id, role, content, created_at
+                    id, tenant_id, user_id, agent_id, session_id, role, content, content_blocks_json, created_at
                 ) values (
-                    :id, :tenantId, :userId, :agentId, :sessionId, :role, :content, :createdAt
+                    :id, :tenantId, :userId, :agentId, :sessionId, :role, :content, :contentBlocksJson, :createdAt
                 )
                 """, new MapSqlParameterSource()
                 .addValue("id", message.id())
@@ -49,6 +61,7 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
                 .addValue("sessionId", context.sessionId())
                 .addValue("role", message.role().name())
                 .addValue("content", message.content())
+                .addValue("contentBlocksJson", JsonColumn.write(objectMapper, message.contentBlocks()))
                 .addValue("createdAt", timestamp(message.createdAt())));
     }
 
@@ -73,7 +86,7 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
     @Override
     public List<ChatMessage> listMessages(RuntimeContextScope context) {
         return jdbc.query("""
-                select id, role, content, created_at
+                select id, role, content, content_blocks_json, created_at
                 from ha_session_messages
                 where tenant_id = :tenantId
                   and user_id = :userId
@@ -102,12 +115,17 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
                 "sessionId", context.sessionId());
     }
 
-    private static RowMapper<ChatMessage> messageMapper() {
+    private RowMapper<ChatMessage> messageMapper() {
         return (rs, rowNum) -> new ChatMessage(
                 rs.getString("id"),
                 MessageRole.valueOf(rs.getString("role")),
-                rs.getString("content"),
+                contentBlocks(rs.getString("content"), rs.getString("content_blocks_json")),
                 instant(rs, "created_at"));
+    }
+
+    private List<ContentBlock> contentBlocks(String content, String value) {
+        List<ContentBlock> blocks = JsonColumn.read(objectMapper, value, CONTENT_BLOCKS, List.of());
+        return blocks.isEmpty() ? List.of(ContentBlock.text(content == null ? "" : content)) : blocks;
     }
 
     private static RowMapper<SessionSummary> summaryMapper() {

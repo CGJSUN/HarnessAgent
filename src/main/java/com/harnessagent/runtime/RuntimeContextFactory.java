@@ -7,8 +7,8 @@ public class RuntimeContextFactory {
 
     public RuntimeContextScope create(
             String tenantId, String userId, String agentId, String sessionId) {
-        String normalizedTenantId = normalize("tenantId", tenantId);
-        String normalizedUserId = normalize("userId", userId);
+        String normalizedTenantId = normalize("tenantId", PersonalRuntimeDefaults.tenantId(tenantId));
+        String normalizedUserId = normalize("userId", PersonalRuntimeDefaults.ownerId(tenantId, userId));
         String normalizedAgentId = normalize("agentId", agentId);
         String normalizedSessionId = normalize("sessionId", sessionId);
         return new RuntimeContextScope(

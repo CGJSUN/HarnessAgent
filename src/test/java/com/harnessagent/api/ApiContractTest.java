@@ -20,14 +20,20 @@ import com.harnessagent.api.controller.ToolController;
 import com.harnessagent.api.request.ChatRequest;
 import com.harnessagent.api.response.ChatResponse;
 import com.harnessagent.api.response.ErrorResponse;
+import com.harnessagent.api.response.StreamEventKind;
 import com.harnessagent.api.response.StreamEventResponse;
 import com.harnessagent.chat.domain.ChatCommand;
+import com.harnessagent.chat.domain.ChatExecutionSummary;
 import com.harnessagent.chat.domain.ChatResult;
+import com.harnessagent.chat.domain.ContentBlock;
 import com.harnessagent.chat.application.ChatService;
 import com.harnessagent.rag.domain.KnowledgeCitation;
 import com.harnessagent.security.domain.IdentityProviderType;
 import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.session.domain.ChatMessage;
+import com.harnessagent.session.domain.MessageRole;
 import java.lang.reflect.Method;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,7 +51,7 @@ import reactor.core.publisher.Mono;
 
 class ApiContractTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void chatEndpointMappingAndJsonShapeRemainStable() throws Exception {
@@ -58,17 +64,37 @@ class ApiContractTest {
                 new String[] {MediaType.TEXT_EVENT_STREAM_VALUE});
 
         KnowledgeCitation citation = new KnowledgeCitation("source-a", "Title", "v1", 2, "chunk-a");
-        ChatResponse response = new ChatResponse("answer", "user-a", "session-a", true, null, List.of(citation));
+        ChatResponse response = new ChatResponse(
+                "assistant-1",
+                "session-a",
+                "answer",
+                List.of(ContentBlock.text("answer")),
+                new ChatExecutionSummary("completed", true, 1, null, "user-a", "agent-a:session-a"),
+                "user-a",
+                "agent-a:session-a",
+                true,
+                null,
+                List.of(citation));
         JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(response));
 
         assertThat(json.fieldNames()).toIterable()
                 .containsExactlyInAnyOrder(
+                        "messageId",
+                        "sessionId",
                         "message",
+                        "contentBlocks",
+                        "executionSummary",
                         "runtimeUserId",
                         "runtimeSessionId",
                         "knowledgeBacked",
                         "noAnswerReason",
                         "citations");
+        assertThat(json.get("messageId").asText()).isEqualTo("assistant-1");
+        assertThat(json.get("sessionId").asText()).isEqualTo("session-a");
+        assertThat(json.get("contentBlocks").get(0).get("type").asText()).isEqualTo("TEXT");
+        assertThat(json.get("contentBlocks").get(0).get("text").asText()).isEqualTo("answer");
+        assertThat(json.get("executionSummary").get("status").asText()).isEqualTo("completed");
+        assertThat(json.get("executionSummary").get("citationCount").asInt()).isEqualTo(1);
         assertThat(json.get("citations").get(0).get("sourceId").asText()).isEqualTo("source-a");
         assertThat(json.get("citations").get(0).get("chunkIndex").asInt()).isEqualTo(2);
     }
@@ -111,6 +137,14 @@ class ApiContractTest {
         assertThat(command.getValue().knowledgeLimit()).isEqualTo(3);
 
         assertThat(response.message()).isEqualTo("No accessible evidence.");
+        assertThat(response.messageId()).isNotBlank();
+        assertThat(response.sessionId()).isEqualTo("session-a");
+        assertThat(response.contentBlocks()).singleElement()
+                .satisfies(block -> {
+                    assertThat(block.type().name()).isEqualTo("TEXT");
+                    assertThat(block.text()).isEqualTo("No accessible evidence.");
+                });
+        assertThat(response.executionSummary().status()).isEqualTo("knowledge_no_answer");
         assertThat(response.runtimeUserId()).isEqualTo("trusted-user");
         assertThat(response.runtimeSessionId()).isEqualTo("session-a");
         assertThat(response.knowledgeBacked()).isFalse();
@@ -123,6 +157,7 @@ class ApiContractTest {
         KnowledgeCitation citation = new KnowledgeCitation("source-a", "Title", "v1", 0, "chunk-a");
         StreamEventResponse response = new StreamEventResponse(
                 "done",
+                "COMPLETION",
                 "answer",
                 true,
                 "no accessible evidence",
@@ -134,19 +169,50 @@ class ApiContractTest {
         assertThat(json.fieldNames()).toIterable()
                 .containsExactlyInAnyOrder(
                         "type",
+                        "kind",
                         "content",
                         "terminal",
                         "noAnswerReason",
                         "citations",
                         "metadata");
         assertThat(json.get("type").asText()).isEqualTo("done");
+        assertThat(json.get("kind").asText()).isEqualTo("COMPLETION");
         assertThat(json.get("terminal").asBoolean()).isTrue();
         assertThat(json.get("metadata").get("tokenCount").asInt()).isEqualTo(12);
         assertThat(AgentRuntimeEventType.STATUS.name().toLowerCase()).isEqualTo("status");
         assertThat(AgentRuntimeEventType.DELTA.name().toLowerCase()).isEqualTo("delta");
         assertThat(AgentRuntimeEventType.TOOL.name().toLowerCase()).isEqualTo("tool");
+        assertThat(AgentRuntimeEventType.SUBAGENT.name().toLowerCase()).isEqualTo("subagent");
         assertThat(AgentRuntimeEventType.ERROR.name().toLowerCase()).isEqualTo("error");
         assertThat(AgentRuntimeEventType.DONE.name().toLowerCase()).isEqualTo("done");
+        assertThat(StreamEventKind.from(AgentRuntimeEventType.STATUS)).isEqualTo(StreamEventKind.MODEL_STATUS);
+        assertThat(StreamEventKind.from(AgentRuntimeEventType.DELTA)).isEqualTo(StreamEventKind.TEXT_DELTA);
+        assertThat(StreamEventKind.from(AgentRuntimeEventType.TOOL)).isEqualTo(StreamEventKind.TOOL_EVENT);
+        assertThat(StreamEventKind.from(AgentRuntimeEventType.SUBAGENT)).isEqualTo(StreamEventKind.SUBAGENT_EVENT);
+        assertThat(StreamEventKind.from(AgentRuntimeEventType.ERROR)).isEqualTo(StreamEventKind.ERROR);
+        assertThat(StreamEventKind.from(AgentRuntimeEventType.DONE)).isEqualTo(StreamEventKind.COMPLETION);
+        assertThat(new StreamEventResponse("error", "stream failed", true).kind()).isEqualTo("ERROR");
+    }
+
+    @Test
+    void chatMessageJsonIncludesContentBlocks() throws Exception {
+        ChatMessage message = new ChatMessage(
+                "message-1",
+                MessageRole.ASSISTANT,
+                List.of(
+                        ContentBlock.text("summary"),
+                        ContentBlock.image("workspace://files/chart.png", "image/png", "chart.png"),
+                        ContentBlock.toolResult("search.docs", Map.of("matches", 2))),
+                Instant.parse("2026-06-15T08:00:00Z"));
+
+        JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(message));
+
+        assertThat(json.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("id", "role", "content", "contentBlocks", "createdAt");
+        assertThat(json.get("content").asText()).isEqualTo("summary");
+        assertThat(json.get("contentBlocks").get(1).get("type").asText()).isEqualTo("IMAGE");
+        assertThat(json.get("contentBlocks").get(1).get("uri").asText()).isEqualTo("workspace://files/chart.png");
+        assertThat(json.get("contentBlocks").get(2).get("metadata").get("toolName").asText()).isEqualTo("search.docs");
     }
 
     @Test

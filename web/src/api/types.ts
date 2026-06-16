@@ -30,6 +30,7 @@ export interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
+  contentBlocks: ContentBlock[];
   createdAt: string;
   status?: "streaming" | "done" | "failed" | "cancelled";
   citations?: KnowledgeCitation[];
@@ -57,8 +58,32 @@ export interface ChatRequest {
   knowledgeLimit: number;
 }
 
+export type ContentBlockType = "TEXT" | "FILE" | "IMAGE" | "AUDIO" | "VIDEO" | "THINKING" | "TOOL_RESULT" | string;
+
+export interface ContentBlock {
+  type: ContentBlockType;
+  text?: string | null;
+  uri?: string | null;
+  mimeType?: string | null;
+  title?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ChatExecutionSummary {
+  status: string;
+  knowledgeBacked: boolean;
+  citationCount: number;
+  noAnswerReason?: string | null;
+  runtimeUserId: string;
+  runtimeSessionId: string;
+}
+
 export interface ChatResponse {
+  messageId: string;
+  sessionId: string;
   message: string;
+  contentBlocks: ContentBlock[];
+  executionSummary: ChatExecutionSummary;
   runtimeUserId: string;
   runtimeSessionId: string;
   knowledgeBacked: boolean;
@@ -66,8 +91,18 @@ export interface ChatResponse {
   citations: KnowledgeCitation[];
 }
 
+export type StreamEventKind =
+  | "MODEL_STATUS"
+  | "TEXT_DELTA"
+  | "TOOL_EVENT"
+  | "SUBAGENT_EVENT"
+  | "ERROR"
+  | "COMPLETION"
+  | string;
+
 export interface StreamEvent {
   type: "status" | "delta" | "tool" | "error" | "done" | string;
+  kind?: StreamEventKind;
   content: string;
   terminal: boolean;
   noAnswerReason?: string;

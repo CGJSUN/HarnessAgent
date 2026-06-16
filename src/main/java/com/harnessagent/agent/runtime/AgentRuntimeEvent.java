@@ -28,6 +28,18 @@ public record AgentRuntimeEvent(
         return new AgentRuntimeEvent(AgentRuntimeEventType.DELTA, content, false);
     }
 
+    public static AgentRuntimeEvent delta(String content, Map<String, ?> attributes) {
+        return new AgentRuntimeEvent(AgentRuntimeEventType.DELTA, content, false, copyAttributes(attributes));
+    }
+
+    public static AgentRuntimeEvent tool(String content, Map<String, ?> attributes) {
+        return new AgentRuntimeEvent(AgentRuntimeEventType.TOOL, content, false, copyAttributes(attributes));
+    }
+
+    public static AgentRuntimeEvent subagent(String content, Map<String, ?> attributes) {
+        return new AgentRuntimeEvent(AgentRuntimeEventType.SUBAGENT, content, false, copyAttributes(attributes));
+    }
+
     public static AgentRuntimeEvent error(String content) {
         return new AgentRuntimeEvent(AgentRuntimeEventType.ERROR, content, true);
     }
@@ -38,5 +50,9 @@ public record AgentRuntimeEvent(
 
     public static AgentRuntimeEvent done(String content, Map<String, Object> attributes) {
         return new AgentRuntimeEvent(AgentRuntimeEventType.DONE, content, true, attributes);
+    }
+
+    private static Map<String, Object> copyAttributes(Map<String, ?> attributes) {
+        return attributes == null ? Map.of() : Map.copyOf(attributes);
     }
 }

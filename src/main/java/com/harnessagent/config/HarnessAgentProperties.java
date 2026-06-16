@@ -2,6 +2,8 @@ package com.harnessagent.config;
 
 import com.harnessagent.production.config.AgentWorkloadType;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -9,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "harness-agent")
 public class HarnessAgentProperties {
 
-    private String defaultAgentId = "enterprise-assistant";
+    private String defaultAgentId = "personal-assistant";
 
     private String defaultProvider = "echo";
 
@@ -92,10 +94,13 @@ public class HarnessAgentProperties {
         private String systemPrompt;
         private String modelProvider;
         private String modelName;
+        private String modelApiKeyRef;
         private String workspace;
         private AgentWorkloadType workloadType = AgentWorkloadType.OFFICE;
         private boolean compaction = true;
         private int maxIters = 3;
+        private AgentBudget budget = new AgentBudget();
+        private List<String> fallbackProviders = new ArrayList<>();
 
         public String getName() {
             return name;
@@ -129,6 +134,14 @@ public class HarnessAgentProperties {
             this.modelName = modelName;
         }
 
+        public String getModelApiKeyRef() {
+            return modelApiKeyRef;
+        }
+
+        public void setModelApiKeyRef(String modelApiKeyRef) {
+            this.modelApiKeyRef = modelApiKeyRef;
+        }
+
         public String getWorkspace() {
             return workspace;
         }
@@ -160,13 +173,32 @@ public class HarnessAgentProperties {
         public void setMaxIters(int maxIters) {
             this.maxIters = maxIters;
         }
+
+        public AgentBudget getBudget() {
+            return budget;
+        }
+
+        public void setBudget(AgentBudget budget) {
+            this.budget = budget == null ? new AgentBudget() : budget;
+        }
+
+        public List<String> getFallbackProviders() {
+            return fallbackProviders;
+        }
+
+        public void setFallbackProviders(List<String> fallbackProviders) {
+            this.fallbackProviders = fallbackProviders == null ? new ArrayList<>() : fallbackProviders;
+        }
     }
 
     public static class ModelProviderDefinition {
         private String type;
         private String modelName;
+        private String apiKeyRef;
         private String apiKey;
         private String apiKeyEnv;
+        private String baseUrl;
+        private String endpointPath;
 
         public String getType() {
             return type;
@@ -184,6 +216,14 @@ public class HarnessAgentProperties {
             this.modelName = modelName;
         }
 
+        public String getApiKeyRef() {
+            return apiKeyRef;
+        }
+
+        public void setApiKeyRef(String apiKeyRef) {
+            this.apiKeyRef = apiKeyRef;
+        }
+
         public String getApiKey() {
             return apiKey;
         }
@@ -198,6 +238,43 @@ public class HarnessAgentProperties {
 
         public void setApiKeyEnv(String apiKeyEnv) {
             this.apiKeyEnv = apiKeyEnv;
+        }
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public String getEndpointPath() {
+            return endpointPath;
+        }
+
+        public void setEndpointPath(String endpointPath) {
+            this.endpointPath = endpointPath;
+        }
+    }
+
+    public static class AgentBudget {
+        private Long requestLimit;
+        private Long tokenLimit;
+
+        public Long getRequestLimit() {
+            return requestLimit;
+        }
+
+        public void setRequestLimit(Long requestLimit) {
+            this.requestLimit = requestLimit;
+        }
+
+        public Long getTokenLimit() {
+            return tokenLimit;
+        }
+
+        public void setTokenLimit(Long tokenLimit) {
+            this.tokenLimit = tokenLimit;
         }
     }
 }

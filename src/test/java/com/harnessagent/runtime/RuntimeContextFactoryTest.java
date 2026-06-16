@@ -18,10 +18,36 @@ class RuntimeContextFactoryTest {
     }
 
     @Test
+    void defaultsBlankTenantAndUserToPersonalOwnerContext() {
+        RuntimeContextScope context = factory.create(null, " ", "personal-agent", "session-a");
+
+        assertThat(context.tenantId()).isEqualTo("personal");
+        assertThat(context.userId()).isEqualTo("personal-user");
+        assertThat(context.runtimeUserId()).isEqualTo("personal:personal-user");
+        assertThat(context.runtimeSessionId()).isEqualTo("personal-agent:session-a");
+    }
+
+    @Test
+    void usesRequestUserAsPersonalOwnerWhenTenantIsBlank() {
+        RuntimeContextScope context = factory.create("", "alice", "personal-agent", "session-a");
+
+        assertThat(context.tenantId()).isEqualTo("personal");
+        assertThat(context.userId()).isEqualTo("alice");
+        assertThat(context.runtimeUserId()).isEqualTo("personal:alice");
+    }
+
+    @Test
     void rejectsBlankValues() {
         assertThatThrownBy(() -> factory.create("tenant-a", " ", "agent-a", "session-a"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("userId is required");
+    }
+
+    @Test
+    void stillRejectsBlankAgentForPersonalContext() {
+        assertThatThrownBy(() -> factory.create(null, null, " ", "session-a"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("agentId is required");
     }
 
     @Test

@@ -34,16 +34,16 @@ describe("parseApiError", () => {
 
 describe("createSseParser", () => {
   it("parses typed server-sent events across chunks", () => {
-    const events: Array<{ type: string; content: string; terminal: boolean }> = [];
+    const events: Array<{ type: string; kind?: string; content: string; terminal: boolean }> = [];
     const parser = createSseParser(event => events.push(event));
 
-    parser.feed('event: delta\ndata: {"type":"delta","content":"Hel","terminal":false}\n');
-    parser.feed('\nevent: terminal\ndata: {"type":"terminal","content":"","terminal":true}\n\n');
+    parser.feed('event: delta\ndata: {"type":"delta","kind":"TEXT_DELTA","content":"Hel","terminal":false}\n');
+    parser.feed('\nevent: done\ndata: {"type":"done","kind":"COMPLETION","content":"","terminal":true}\n\n');
     parser.flush();
 
     expect(events).toEqual([
-      { type: "delta", content: "Hel", terminal: false },
-      { type: "terminal", content: "", terminal: true }
+      { type: "delta", kind: "TEXT_DELTA", content: "Hel", terminal: false },
+      { type: "done", kind: "COMPLETION", content: "", terminal: true }
     ]);
   });
 

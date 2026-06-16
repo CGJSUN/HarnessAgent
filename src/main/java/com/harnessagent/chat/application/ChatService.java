@@ -6,6 +6,8 @@ import com.harnessagent.agent.runtime.AgentRuntime;
 import com.harnessagent.agent.runtime.AgentRuntimeEvent;
 import com.harnessagent.agent.runtime.AgentRuntimeEventType;
 import com.harnessagent.config.HarnessAgentProperties;
+import com.harnessagent.model.ModelConfigurationResolver;
+import com.harnessagent.model.ModelSelection;
 import com.harnessagent.production.budget.BudgetDecision;
 import com.harnessagent.production.budget.BudgetLimiter;
 import com.harnessagent.production.budget.BudgetScope;
@@ -51,6 +53,8 @@ public class ChatService {
     private final RuntimeTelemetry telemetry;
     private final BudgetLimiter budgetLimiter;
     private final HarnessAgentProperties properties;
+    private final ModelConfigurationResolver modelConfigurationResolver;
+    private final AgentSessionRecoveryService recoveryService;
     private final PromptInjectionGuard promptInjectionGuard;
 
     @Autowired
@@ -62,6 +66,8 @@ public class ChatService {
             RuntimeTelemetry telemetry,
             BudgetLimiter budgetLimiter,
             HarnessAgentProperties properties,
+            ModelConfigurationResolver modelConfigurationResolver,
+            AgentSessionRecoveryService recoveryService,
             PromptInjectionGuard promptInjectionGuard) {
         this.runtimeContextFactory = runtimeContextFactory;
         this.sessionStore = sessionStore;
@@ -70,6 +76,8 @@ public class ChatService {
         this.telemetry = telemetry;
         this.budgetLimiter = budgetLimiter;
         this.properties = properties;
+        this.modelConfigurationResolver = modelConfigurationResolver;
+        this.recoveryService = recoveryService;
         this.promptInjectionGuard = promptInjectionGuard;
     }
 
@@ -78,88 +86,105 @@ public class ChatService {
             SessionStore sessionStore,
             AgentRuntime agentRuntime,
             KnowledgeService knowledgeService) {
+        this(runtimeContextFactory, sessionStore, agentRuntime, knowledgeService, new HarnessAgentProperties(),
+                new ProductionRuntimeProperties());
+    }
+
+    private ChatService(
+            RuntimeContextFactory runtimeContextFactory,
+            SessionStore sessionStore,
+            AgentRuntime agentRuntime,
+            KnowledgeService knowledgeService,
+            HarnessAgentProperties properties,
+            ProductionRuntimeProperties runtimeProperties) {
         this(
                 runtimeContextFactory,
                 sessionStore,
                 agentRuntime,
                 knowledgeService,
                 RuntimeTelemetry.noop(),
-                new BudgetLimiter(new ProductionRuntimeProperties(), new InMemoryBudgetCounterStore()),
-                new HarnessAgentProperties(),
+                new BudgetLimiter(runtimeProperties, new InMemoryBudgetCounterStore()),
+                properties,
+                new ModelConfigurationResolver(properties, runtimeProperties),
+                AgentSessionRecoveryService.noop(sessionStore),
                 new PromptInjectionGuard());
     }
 
     public Mono<ChatResult> chat(ChatCommand command) {
         Instant startedAt = Instant.now();
         RuntimeContextScope context = context(command);
+        ChatCommand effective = effectiveCommand(command, context);
         // This order is intentional: establish runtime isolation before safety, budget, persistence, RAG, and model use.
-        enforcePromptSafety(command);
-        enforceBudget(command);
-        ChatMessage userMessage = ChatMessage.user(command.message());
+        enforcePromptSafety(effective);
+        enforceBudget(effective);
+        ChatMessage userMessage = ChatMessage.user(effective.message());
         sessionStore.appendMessage(context, userMessage);
 
-        KnowledgeRetrievalResult knowledge = retrieveKnowledgeIfEnabled(command);
-        recordRagTelemetry(command, knowledge);
+        KnowledgeRetrievalResult knowledge = retrieveKnowledgeIfEnabled(effective);
+        recordRagTelemetry(effective, knowledge);
         if (knowledge != null && !knowledge.answered()) {
             log.warn(
                     "chat rag no_answer tenantId={} agentId={} userHash={} sessionHash={} reason={}",
-                    command.tenantId(),
-                    command.agentId(),
-                    SafeLogFields.user(command.userId()),
-                    SafeLogFields.session(command.sessionId()),
+                    effective.tenantId(),
+                    effective.agentId(),
+                    SafeLogFields.user(effective.userId()),
+                    SafeLogFields.session(effective.sessionId()),
                     SafeLogFields.reasonCode(knowledge.message()));
             ChatMessage assistant = ChatMessage.assistant(knowledge.message());
             sessionStore.appendMessage(context, assistant);
-            return Mono.just(ChatResult.noAnswer(
-                            assistant.content(), context.runtimeUserId(), context.runtimeSessionId()))
-                    .doOnSuccess(result -> recordChatTelemetry(command, startedAt, "knowledge_no_answer"));
+            return Mono.just(ChatResult.noAnswer(assistant, context))
+                    .doOnSuccess(result -> recordChatTelemetry(effective, startedAt, "knowledge_no_answer"));
         }
 
-        List<ChatMessage> messages = messagesForAgent(context, command, knowledge);
+        List<ChatMessage> messages = messagesForRuntime(context, messagesForAgent(context, effective, knowledge));
+        recoveryService.markPending(context, "complete", userMessage.id());
         return agentRuntime.complete(new AgentRunRequest(context, messages))
                 .map(reply -> persistAssistantMessage(context, reply, knowledge))
-                .doOnSuccess(result -> recordChatTelemetry(command, startedAt, "succeeded"))
+                .doOnSuccess(result -> recordChatTelemetry(effective, startedAt, "succeeded"))
                 .doOnError(error -> {
                     log.error(
                             "chat model failed tenantId={} agentId={} userHash={} sessionHash={} errorType={}",
-                            command.tenantId(),
-                            command.agentId(),
-                            SafeLogFields.user(command.userId()),
-                            SafeLogFields.session(command.sessionId()),
+                            effective.tenantId(),
+                            effective.agentId(),
+                            SafeLogFields.user(effective.userId()),
+                            SafeLogFields.session(effective.sessionId()),
                             error.getClass().getSimpleName());
-                    recordChatTelemetry(command, startedAt, "failed");
-                });
+                    recordChatTelemetry(effective, startedAt, "failed");
+                })
+                .doFinally(ignored -> recoveryService.clearPending(context));
     }
 
     public Flux<AgentRuntimeEvent> stream(ChatCommand command) {
         Instant startedAt = Instant.now();
         RuntimeContextScope context = context(command);
+        ChatCommand effective = effectiveCommand(command, context);
         // Streaming follows the same governance order as non-streaming; SSE serialization happens only after checks pass.
-        enforcePromptSafety(command);
-        enforceBudget(command);
-        ChatMessage userMessage = ChatMessage.user(command.message());
+        enforcePromptSafety(effective);
+        enforceBudget(effective);
+        ChatMessage userMessage = ChatMessage.user(effective.message());
         sessionStore.appendMessage(context, userMessage);
 
-        KnowledgeRetrievalResult knowledge = retrieveKnowledgeIfEnabled(command);
-        recordRagTelemetry(command, knowledge);
+        KnowledgeRetrievalResult knowledge = retrieveKnowledgeIfEnabled(effective);
+        recordRagTelemetry(effective, knowledge);
         if (knowledge != null && !knowledge.answered()) {
             log.warn(
                     "chat stream rag no_answer tenantId={} agentId={} userHash={} sessionHash={} reason={}",
-                    command.tenantId(),
-                    command.agentId(),
-                    SafeLogFields.user(command.userId()),
-                    SafeLogFields.session(command.sessionId()),
+                    effective.tenantId(),
+                    effective.agentId(),
+                    SafeLogFields.user(effective.userId()),
+                    SafeLogFields.session(effective.sessionId()),
                     SafeLogFields.reasonCode(knowledge.message()));
             sessionStore.appendMessage(context, ChatMessage.assistant(knowledge.message()));
             return Flux.just(
                     AgentRuntimeEvent.status("knowledge_no_answer", Map.of("noAnswerReason", knowledge.message())),
                     AgentRuntimeEvent.delta(knowledge.message()),
                     AgentRuntimeEvent.done("completed", Map.of("noAnswerReason", knowledge.message())))
-                    .doOnComplete(() -> recordChatTelemetry(command, startedAt, "knowledge_no_answer"));
+                    .doOnComplete(() -> recordChatTelemetry(effective, startedAt, "knowledge_no_answer"));
         }
 
-        List<ChatMessage> messages = messagesForAgent(context, command, knowledge);
+        List<ChatMessage> messages = messagesForRuntime(context, messagesForAgent(context, effective, knowledge));
         StringBuilder assistantContent = new StringBuilder();
+        recoveryService.markPending(context, "stream", userMessage.id());
         return agentRuntime.stream(new AgentRunRequest(context, messages))
                 .doOnNext(event -> {
                     if (event.type() == AgentRuntimeEventType.DELTA) {
@@ -182,17 +207,18 @@ public class ChatService {
                                 context, ChatMessage.assistant(assistantContent.toString()));
                     }
                 })
-                .doOnComplete(() -> recordChatTelemetry(command, startedAt, "succeeded"))
+                .doOnComplete(() -> recordChatTelemetry(effective, startedAt, "succeeded"))
                 .doOnError(error -> {
                     log.error(
                             "chat stream failed tenantId={} agentId={} userHash={} sessionHash={} errorType={}",
-                            command.tenantId(),
-                            command.agentId(),
-                            SafeLogFields.user(command.userId()),
-                            SafeLogFields.session(command.sessionId()),
+                            effective.tenantId(),
+                            effective.agentId(),
+                            SafeLogFields.user(effective.userId()),
+                            SafeLogFields.session(effective.sessionId()),
                             error.getClass().getSimpleName());
-                    recordChatTelemetry(command, startedAt, "failed");
-                });
+                    recordChatTelemetry(effective, startedAt, "failed");
+                })
+                .doFinally(ignored -> recoveryService.clearPending(context));
     }
 
     private ChatResult persistAssistantMessage(
@@ -201,12 +227,11 @@ public class ChatService {
         sessionStore.appendMessage(context, assistant);
         if (knowledge != null && knowledge.answered()) {
             return ChatResult.knowledgeBacked(
-                    assistant.content(),
-                    context.runtimeUserId(),
-                    context.runtimeSessionId(),
+                    assistant,
+                    context,
                     knowledge.citations());
         }
-        return ChatResult.plain(assistant.content(), context.runtimeUserId(), context.runtimeSessionId());
+        return ChatResult.plain(assistant, context);
     }
 
     private List<ChatMessage> messagesForAgent(
@@ -221,6 +246,13 @@ public class ChatService {
         // Accessible RAG evidence is injected as a constrained user prompt; no accessible evidence must short-circuit above.
         messages.add(ChatMessage.user(buildKnowledgePrompt(command.message(), knowledge.results())));
         return messages;
+    }
+
+    private List<ChatMessage> messagesForRuntime(RuntimeContextScope context, List<ChatMessage> messages) {
+        if (messages.isEmpty() || !recoveryService.agentScopeStatePresent(context)) {
+            return messages;
+        }
+        return List.of(messages.get(messages.size() - 1));
     }
 
     private KnowledgeRetrievalResult retrieveKnowledgeIfEnabled(ChatCommand command) {
@@ -241,12 +273,28 @@ public class ChatService {
                 command.tenantId(), command.userId(), command.agentId(), command.sessionId());
     }
 
+    private static ChatCommand effectiveCommand(ChatCommand command, RuntimeContextScope context) {
+        return new ChatCommand(
+                context.tenantId(),
+                context.userId(),
+                context.agentId(),
+                context.sessionId(),
+                command.message(),
+                command.knowledgeEnabled(),
+                safeSet(command.departments()),
+                safeSet(command.roles()),
+                command.knowledgeLimit());
+    }
+
     private void enforceBudget(ChatCommand command) {
+        ModelSelection selection = modelConfigurationResolver.resolve(command.agentId());
         BudgetDecision decision = budgetLimiter.tryConsume(new BudgetScope(
                 command.tenantId(),
                 command.userId(),
                 command.agentId(),
-                firstNonBlank(properties.getDefaultProvider(), "default")), estimateTokens(command.message()));
+                firstNonBlank(selection.providerId(), properties.getDefaultProvider(), "default")),
+                estimateTokens(command.message()),
+                selection.budgetLimit());
         telemetry.record(
                 TelemetryEventType.TOKEN,
                 command.tenantId(),
@@ -350,7 +398,18 @@ public class ChatService {
         return Math.max(1, (long) Math.ceil(message.length() / 4.0));
     }
 
-    private static String firstNonBlank(String first, String fallback) {
-        return first == null || first.isBlank() ? fallback : first;
+    private static String firstNonBlank(String first, String... rest) {
+        if (first != null && !first.isBlank()) {
+            return first.trim();
+        }
+        if (rest == null) {
+            return null;
+        }
+        for (String value : rest) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 }

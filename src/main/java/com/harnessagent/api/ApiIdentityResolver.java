@@ -2,6 +2,7 @@ package com.harnessagent.api;
 
 import com.harnessagent.security.domain.IdentityProviderType;
 import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.runtime.PersonalRuntimeDefaults;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
@@ -21,8 +22,8 @@ public class ApiIdentityResolver {
         String headerUserId = header(headers, "X-User-Id");
         if (headerTenantId == null && headerUserId == null) {
             return new SecurityPrincipal(
-                    requestTenantId,
-                    requestUserId,
+                    PersonalRuntimeDefaults.tenantId(requestTenantId),
+                    PersonalRuntimeDefaults.ownerId(requestTenantId, requestUserId),
                     IdentityProviderType.INTERNAL,
                     safeSet(requestRoles),
                     safeSet(requestDepartments));

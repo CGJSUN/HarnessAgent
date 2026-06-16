@@ -45,6 +45,7 @@ class DurablePersistenceMigrationTest {
 
             int tableComments = 0;
             int columnComments = 0;
+            boolean sessionContentBlocksColumn = false;
             for (String table : TABLES) {
                 try (ResultSet tables = metadata.getTables(null, "PUBLIC", table, new String[] {"TABLE"})) {
                     assertThat(tables.next())
@@ -56,6 +57,11 @@ class DurablePersistenceMigrationTest {
                 }
                 try (ResultSet columns = metadata.getColumns(null, "PUBLIC", table, null)) {
                     while (columns.next()) {
+                        if ("ha_session_messages".equals(table)
+                                && "content_blocks_json".equals(columns.getString("COLUMN_NAME"))) {
+                            sessionContentBlocksColumn = true;
+                            assertThat(columns.getString("REMARKS")).contains("Structured content blocks");
+                        }
                         if (hasText(columns.getString("REMARKS"))) {
                             columnComments++;
                         }
@@ -64,7 +70,8 @@ class DurablePersistenceMigrationTest {
             }
 
             assertThat(tableComments).isEqualTo(14);
-            assertThat(columnComments).isEqualTo(126);
+            assertThat(columnComments).isEqualTo(127);
+            assertThat(sessionContentBlocksColumn).isTrue();
         }
     }
 

@@ -43,7 +43,7 @@ public class DefaultAgentStateStoreFactory implements AgentStateStoreFactory {
     @Override
     public AgentStateStore create(StateStorePlan plan) {
         return switch (plan.type()) {
-            case LOCAL_JSON -> new InMemoryAgentStateStore(keyStrategy, plan);
+            case LOCAL_JSON -> new LocalJsonAgentStateStore(keyStrategy, plan);
             case REDIS -> redisStateStore.orElseThrow(() ->
                     new UnsupportedOperationException("Redis AgentStateStore is not wired yet."));
             case MYSQL -> mysqlStateStore.orElseThrow(() ->

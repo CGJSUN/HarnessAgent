@@ -56,4 +56,33 @@ class ApiIdentityResolverTest {
         assertThat(principal.providerType()).isEqualTo(IdentityProviderType.INTERNAL);
         assertThat(principal.roles()).containsExactly("employee");
     }
+
+    @Test
+    void defaultsToPersonalIdentityWhenLocalRequestOmitsEnterpriseIdentity() {
+        SecurityPrincipal principal = resolver.resolve(
+                Map.of(),
+                null,
+                null,
+                Set.of(),
+                Set.of());
+
+        assertThat(principal.tenantId()).isEqualTo("personal");
+        assertThat(principal.userId()).isEqualTo("personal-user");
+        assertThat(principal.roles()).isEmpty();
+        assertThat(principal.departments()).isEmpty();
+    }
+
+    @Test
+    void mapsLocalRequestUserToPersonalOwnerWhenTenantIsBlank() {
+        SecurityPrincipal principal = resolver.resolve(
+                Map.of(),
+                "",
+                "alice",
+                Set.of("local-user"),
+                Set.of());
+
+        assertThat(principal.tenantId()).isEqualTo("personal");
+        assertThat(principal.userId()).isEqualTo("alice");
+        assertThat(principal.roles()).containsExactly("local-user");
+    }
 }

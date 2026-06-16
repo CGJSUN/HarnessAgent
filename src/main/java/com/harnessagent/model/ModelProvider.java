@@ -7,4 +7,8 @@ public interface ModelProvider {
     String id();
 
     Model createModel(String requestedModelName);
+
+    default Model createModel(ModelProviderRequest request) {
+        return createModel(request == null ? null : request.modelName());
+    }
 }

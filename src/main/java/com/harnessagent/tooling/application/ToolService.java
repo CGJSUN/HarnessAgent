@@ -9,10 +9,24 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.nio.file.Path;
 import com.harnessagent.production.config.ProductionRuntimeProperties;
+import com.harnessagent.production.config.AgentWorkloadType;
+import com.harnessagent.production.sandbox.DockerSandboxExecutor;
+import com.harnessagent.production.sandbox.LocalProcessSandboxExecutor;
+import com.harnessagent.production.sandbox.RemoteSandboxExecutor;
+import com.harnessagent.production.sandbox.SandboxExecutionMode;
+import com.harnessagent.production.sandbox.SandboxExecutionPolicy;
+import com.harnessagent.production.sandbox.SandboxExecutionPolicyService;
+import com.harnessagent.production.sandbox.SandboxExecutionRequest;
+import com.harnessagent.production.sandbox.SandboxExecutionResult;
+import com.harnessagent.production.sandbox.SandboxExecutionStatus;
+import com.harnessagent.production.sandbox.SandboxExecutor;
+import com.harnessagent.production.sandbox.SandboxExecutorRegistry;
 import com.harnessagent.production.telemetry.RuntimeTelemetry;
 import com.harnessagent.production.infrastructure.RuntimeTimeoutGuard;
 import com.harnessagent.production.telemetry.TelemetryEventType;
+import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.security.application.PromptInjectionGuard;
 import com.harnessagent.security.application.SafeLogFields;
 import com.harnessagent.security.domain.SecurityDecision;
@@ -47,13 +61,20 @@ public class ToolService {
     private final RuntimeTimeoutGuard timeoutGuard;
     private final RuntimeTelemetry telemetry;
     private final PromptInjectionGuard promptInjectionGuard;
+    private final SandboxExecutionPolicyService sandboxPolicyService;
+    private final SandboxExecutorRegistry sandboxExecutorRegistry;
 
     public ToolService(ToolStore store, List<ToolExecutor> executors) {
         this(store,
                 executors,
                 new RuntimeTimeoutGuard(new ProductionRuntimeProperties()),
                 RuntimeTelemetry.noop(),
-                new PromptInjectionGuard());
+                new PromptInjectionGuard(),
+                new SandboxExecutionPolicyService(new ProductionRuntimeProperties()),
+                new SandboxExecutorRegistry(List.of(
+                        new LocalProcessSandboxExecutor(),
+                        new DockerSandboxExecutor(),
+                        new RemoteSandboxExecutor())));
     }
 
     @Autowired
@@ -62,7 +83,9 @@ public class ToolService {
             List<ToolExecutor> executors,
             RuntimeTimeoutGuard timeoutGuard,
             RuntimeTelemetry telemetry,
-            PromptInjectionGuard promptInjectionGuard) {
+            PromptInjectionGuard promptInjectionGuard,
+            SandboxExecutionPolicyService sandboxPolicyService,
+            SandboxExecutorRegistry sandboxExecutorRegistry) {
         this.store = store;
         this.executors = executors == null || executors.isEmpty()
                 ? List.of(new DefaultToolExecutor())
@@ -70,6 +93,8 @@ public class ToolService {
         this.timeoutGuard = timeoutGuard;
         this.telemetry = telemetry;
         this.promptInjectionGuard = promptInjectionGuard;
+        this.sandboxPolicyService = sandboxPolicyService;
+        this.sandboxExecutorRegistry = sandboxExecutorRegistry;
     }
 
     public ToolDefinition registerTool(ToolRegistration registration) {
@@ -145,6 +170,30 @@ public class ToolService {
             audit(command, tool, rejected, startedAt, rejected.message());
             recordToolTelemetry(command, tool.name(), rejected, startedAt);
             return rejected;
+        }
+
+        Optional<AgentWorkloadType> sandboxWorkload = sandboxWorkload(tool);
+        if (sandboxWorkload.isPresent() && !isApproved(command)) {
+            ToolExecutionResult result = ToolExecutionResult.pending(
+                    tool.id(),
+                    Map.of(
+                            "toolName", tool.name(),
+                            "riskLevel", tool.riskLevel().name(),
+                            "sandboxRequired", true,
+                            "workloadType", sandboxWorkload.get().name(),
+                            "parameters", sanitizeInput(tool, command.parameters())));
+            log.info(
+                    "tool sandbox pending tenantId={} agentId={} toolId={} workloadType={} userHash={} sessionHash={} idempotencyHash={}",
+                    command.tenantId(),
+                    command.agentId(),
+                    tool.id(),
+                    sandboxWorkload.get(),
+                    SafeLogFields.user(command.userId()),
+                    SafeLogFields.session(command.sessionId()),
+                    SafeLogFields.idempotency(command.idempotencyKey()));
+            audit(command, tool, result, startedAt, result.message());
+            recordToolTelemetry(command, tool.name(), result, startedAt);
+            return result;
         }
 
         if (tool.riskLevel() == ToolRiskLevel.HIGH_RISK && !isApproved(command)) {
@@ -280,6 +329,10 @@ public class ToolService {
 
     private ToolExecutionResult runExecutor(ToolDefinition tool, ToolExecutionCommand command) {
         try {
+            Optional<AgentWorkloadType> sandboxWorkload = sandboxWorkload(tool);
+            if (sandboxWorkload.isPresent()) {
+                return runSandboxedExecutor(tool, command, sandboxWorkload.get());
+            }
             ToolExecutor executor = executors.stream()
                     .filter(candidate -> candidate.supports(tool))
                     .findFirst()
@@ -290,6 +343,138 @@ public class ToolService {
         } catch (RuntimeException exception) {
             return ToolExecutionResult.failed(tool.id(), exception.getMessage());
         }
+    }
+
+    private ToolExecutionResult runSandboxedExecutor(
+            ToolDefinition tool,
+            ToolExecutionCommand command,
+            AgentWorkloadType workloadType) {
+        SandboxExecutionPolicy policy = sandboxPolicyService.policyFor(
+                new RuntimeContextScope(
+                        command.tenantId(),
+                        command.userId(),
+                        command.agentId(),
+                        command.sessionId(),
+                        command.userId(),
+                        command.sessionId()),
+                workloadType,
+                null);
+        SandboxExecutor sandboxExecutor = sandboxExecutorRegistry.executor(policy.mode());
+        SandboxExecutionRequest request = new SandboxExecutionRequest(
+                new RuntimeContextScope(
+                        command.tenantId(),
+                        command.userId(),
+                        command.agentId(),
+                        command.sessionId(),
+                        command.userId(),
+                        command.sessionId()),
+                workloadType,
+                sandboxCommand(tool, command.parameters()),
+                sandboxArguments(command.parameters()),
+                Path.of("."),
+                sandboxEnvironment(command.parameters()),
+                command.idempotencyKey());
+        SandboxExecutionResult sandboxResult = timeoutGuard.guardSandbox(Mono.fromCallable(
+                () -> sandboxExecutor.execute(policy, request))).block();
+        if (sandboxResult.status() == SandboxExecutionStatus.SUCCEEDED) {
+            return ToolExecutionResult.success(tool.id(), sandboxOutput(policy, sandboxResult));
+        }
+        if (sandboxResult.status() == SandboxExecutionStatus.REJECTED) {
+            return ToolExecutionResult.denied(tool.id(), sandboxResult.message());
+        }
+        return ToolExecutionResult.failed(tool.id(), sandboxResult.message());
+    }
+
+    private static Optional<AgentWorkloadType> sandboxWorkload(ToolDefinition tool) {
+        String normalized = String.join(" ",
+                tool.name(),
+                tool.description(),
+                tool.ownerSystem(),
+                tool.sourceRef()).toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("untrusted")) {
+            return Optional.of(AgentWorkloadType.UNTRUSTED);
+        }
+        if (normalized.contains("shell")
+                || normalized.contains("bash")
+                || normalized.contains("terminal")
+                || normalized.contains("command")) {
+            return Optional.of(AgentWorkloadType.SHELL);
+        }
+        if (normalized.contains("sql")
+                || normalized.contains("database")) {
+            return Optional.of(AgentWorkloadType.SQL);
+        }
+        if (normalized.contains("code")
+                || normalized.contains("script")
+                || normalized.contains("python")
+                || normalized.contains("node")
+                || normalized.contains("java")) {
+            return Optional.of(AgentWorkloadType.CODE);
+        }
+        return Optional.empty();
+    }
+
+    private static String sandboxCommand(ToolDefinition tool, Map<String, Object> parameters) {
+        for (String key : List.of("command", "script", "code", "sql", "query")) {
+            Object value = parameters.get(key);
+            if (value != null && !String.valueOf(value).isBlank()) {
+                return String.valueOf(value);
+            }
+        }
+        return tool.name();
+    }
+
+    private static List<String> sandboxArguments(Map<String, Object> parameters) {
+        Object raw = parameters.containsKey("arguments") ? parameters.get("arguments") : parameters.get("args");
+        if (raw instanceof Iterable<?> iterable) {
+            java.util.ArrayList<String> values = new java.util.ArrayList<>();
+            iterable.forEach(value -> {
+                if (value != null) {
+                    values.add(String.valueOf(value));
+                }
+            });
+            return List.copyOf(values);
+        }
+        if (raw != null && !String.valueOf(raw).isBlank()) {
+            return List.of(String.valueOf(raw));
+        }
+        return List.of();
+    }
+
+    private static Map<String, String> sandboxEnvironment(Map<String, Object> parameters) {
+        Object raw = parameters.get("environment");
+        if (!(raw instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, String> environment = new LinkedHashMap<>();
+        map.forEach((key, value) -> {
+            if (key != null && !String.valueOf(key).isBlank()) {
+                environment.put(String.valueOf(key), value == null ? "" : String.valueOf(value));
+            }
+        });
+        return Map.copyOf(environment);
+    }
+
+    private static Map<String, Object> sandboxOutput(
+            SandboxExecutionPolicy policy,
+            SandboxExecutionResult result) {
+        Map<String, Object> sandbox = new LinkedHashMap<>();
+        sandbox.put("mode", policy.mode().name());
+        sandbox.put("workspaceRoot", policy.workspaceRoot().toString());
+        sandbox.put("exitCode", result.exitCode());
+        sandbox.put("status", result.status().name());
+        if (policy.mode() == SandboxExecutionMode.DOCKER) {
+            sandbox.put("image", policy.image());
+        }
+        if (policy.mode() == SandboxExecutionMode.REMOTE) {
+            sandbox.put("remoteEndpoint", policy.remoteEndpoint());
+        }
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("sandbox", Map.copyOf(sandbox));
+        output.put("stdout", result.stdout());
+        output.put("stderr", result.stderr());
+        output.put("metadata", result.metadata());
+        return Map.copyOf(output);
     }
 
     private boolean isApproved(ToolExecutionCommand command) {

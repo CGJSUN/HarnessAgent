@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import com.harnessagent.production.sandbox.SandboxExecutionMode;
 import com.harnessagent.production.snapshot.SnapshotStore;
 import com.harnessagent.production.snapshot.SnapshotStoreType;
 import com.harnessagent.production.state.StateStoreType;
@@ -320,8 +321,10 @@ public class ProductionRuntimeProperties {
 
     public static class Sandbox {
         private boolean enabled;
+        private SandboxExecutionMode mode = SandboxExecutionMode.DOCKER;
         private String image = "harness-agent-sandbox:latest";
         private String workspaceRoot = "/workspace";
+        private String remoteEndpoint = "";
 
         public boolean isEnabled() {
             return enabled;
@@ -329,6 +332,14 @@ public class ProductionRuntimeProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public SandboxExecutionMode getMode() {
+            return mode;
+        }
+
+        public void setMode(SandboxExecutionMode mode) {
+            this.mode = mode == null ? SandboxExecutionMode.DOCKER : mode;
         }
 
         public String getImage() {
@@ -344,7 +355,19 @@ public class ProductionRuntimeProperties {
         }
 
         public void setWorkspaceRoot(String workspaceRoot) {
-            this.workspaceRoot = workspaceRoot;
+            String value = workspaceRoot == null || workspaceRoot.isBlank() ? "/workspace" : workspaceRoot.trim();
+            if (!Path.of(value).isAbsolute()) {
+                throw new IllegalArgumentException("sandbox workspace root must be an absolute path");
+            }
+            this.workspaceRoot = value;
+        }
+
+        public String getRemoteEndpoint() {
+            return remoteEndpoint;
+        }
+
+        public void setRemoteEndpoint(String remoteEndpoint) {
+            this.remoteEndpoint = remoteEndpoint == null ? "" : remoteEndpoint.trim();
         }
     }
 

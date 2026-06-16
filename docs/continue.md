@@ -1,11 +1,17 @@
-我刚做的是静态扫描，没跑完整测试。按 OpenSpec 任务表看，`enterprise-agent-platform`、`add-web-ui-console`、`add-durable-persistence` 三个变更都已经完成；仓库里也没看到明显的未完成标记残留。下面这些不应理解为“任务未完成”，而是 MVP 边界、未开放入口或生产接线上的待决策点。
+我刚做的是静态扫描，没跑完整测试。早期 `enterprise-agent-platform`、`add-web-ui-console`、`add-durable-persistence` 三个企业 MVP 变更已经完成，但当前产品方向已切换到 `build-personal-agentscope-agent`：个人版完整 Agent 是目标，企业租户、RBAC、运营后台、企业审计报表和发布门禁只作为遗留兼容或开发诊断。下面这些不应理解为“个人版任务已完成”，而是迁移前的企业 MVP 边界、未开放入口或生产接线待决策点。
+
+个人版迁移时先读：
+
+- [enterprise-to-personal-migration-inventory.md](enterprise-to-personal-migration-inventory.md)
+- [agentscope-java-v2-coverage.md](agentscope-java-v2-coverage.md)
+- [release-readiness.md](release-readiness.md)
 
 ## 当前判断
 
-- OpenSpec 任务状态已经闭环：`openspec list --json` 显示三个变更均为 `complete`。这表示当前 MVP 规格内的实现和测试任务已完成，不等于任意生产部署无需配置即可 ready。
+- 早期 OpenSpec 任务状态已经闭环：`openspec list --json` 显示三个企业 MVP 变更均为 `complete`。这表示早期企业 MVP 规格内的实现和测试任务已完成，不等于个人版完整 Agent 已完成，也不等于任意生产部署无需配置即可 ready。
 - RAG 已具备知识源、切片、租户和权限过滤、引用、无答案、指标和反馈能力；边界在于当前 `vectorScore` 是基于 token overlap/Jaccard 的轻量 lexical score，不是真实 embedding + vector DB 检索。
 - 工具治理链路已覆盖权限、参数校验、Prompt 安全检查、高风险确认、幂等和审计；边界在于默认工具执行器是通用回显执行器，MCP 目前主要体现为受治理的 `sourceType`，仓库内未见真实 MCP client 或外部系统调用适配器。
-- 控制台已覆盖核心只读/轻量管理动作；边界在于部分底层服务或通用 API 已存在，但 console REST/UI 没开放完整管理入口。
+- 控制台已覆盖核心只读/轻量管理动作；个人版需要把这些入口迁移为个人工作台，旧 admin/ops/audit/release 视图只保留为兼容或诊断。
 - 持久化生产路径以 MySQL/JDBC 为主，Redis 只覆盖 AgentScope state 和预算计数这类共享状态；development/test 的 `local-json` 或内存实现不能代表生产持久化已启用。
 
 ## 待决策疑问点
@@ -143,7 +149,7 @@
 
 ## 建议收敛动作
 
-1. 把上述疑问点按“是否进入 MVP”逐项定性：进入 MVP、后续扩展、只保留文档说明。
-2. 如果某项进入 MVP，创建新的 OpenSpec change，避免在已完成变更中继续扩大范围。
+1. 把上述疑问点按“个人版是否需要”逐项定性：进入个人版核心、作为 provider/接口扩展、仅保留遗留兼容说明。
+2. 如果某项进入个人版核心，放入 `build-personal-agentscope-agent` 对应任务或后续 OpenSpec change，避免扩大早期企业 MVP 范围。
 3. 如果某项后置，更新 `docs/start.md`、`docs/release-readiness.md` 或 `web/README.md` 的措辞，明确它是边界而不是隐藏能力。
-4. 对生产发布，至少用 production profile 跑一次 phase-gates；这次静态扫描不能替代完整测试和生产接线验证。
+4. 对个人版发布，至少验证 owner/Agent/session/workspace 隔离、AgentScope v2 覆盖矩阵、工作台主流程和生产 profile；旧 phase-gates 只能补充检查生产 wiring。

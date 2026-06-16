@@ -13,6 +13,7 @@ import com.harnessagent.production.infrastructure.AgentScopeStateStoreAdapter;
 import com.harnessagent.production.infrastructure.DefaultAgentStateStoreFactory;
 import com.harnessagent.production.infrastructure.InMemoryAgentStateStore;
 import com.harnessagent.production.infrastructure.JdbcAgentStateStore;
+import com.harnessagent.production.infrastructure.LocalJsonAgentStateStore;
 import com.harnessagent.production.infrastructure.RedisAgentStateStore;
 import com.harnessagent.production.state.AgentStateEntry;
 import com.harnessagent.production.state.AgentStateStore;
@@ -42,7 +43,7 @@ class AgentStateStoreTest {
     void factoryAllowsLocalStateRejectsRedisAndUsesWiredMysqlStore() {
         AgentStateStoreFactory factory = new DefaultAgentStateStoreFactory(keyStrategy);
 
-        assertThat(factory.create(StateStorePlan.local(".state"))).isInstanceOf(InMemoryAgentStateStore.class);
+        assertThat(factory.create(StateStorePlan.local(".state"))).isInstanceOf(LocalJsonAgentStateStore.class);
         assertThatThrownBy(() -> factory.create(StateStorePlan.mysql("jdbc:mysql://localhost/harness_agent")))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("MySQL AgentStateStore is not wired");

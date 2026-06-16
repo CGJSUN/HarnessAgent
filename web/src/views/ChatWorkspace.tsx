@@ -33,6 +33,7 @@ function localMessage(role: ChatMessage["role"], content: string, status?: ChatM
     id: crypto.randomUUID(),
     role,
     content,
+    contentBlocks: [{ type: "TEXT", text: content }],
     createdAt: new Date().toISOString(),
     status
   };
@@ -367,6 +368,8 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {
+  const text = message.content || message.contentBlocks?.filter(block => block.type === "TEXT").map(block => block.text).join("\n") || " ";
+  const richBlocks = (message.contentBlocks ?? []).filter(block => block.type !== "TEXT");
   return (
     <article className={`message message-${message.role.toLowerCase()}`}>
       <div className="message-meta">
@@ -374,7 +377,16 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         <span>{formatDateTime(message.createdAt)}</span>
         {message.status ? <StatusBadge value={message.status} /> : null}
       </div>
-      <p>{message.content || " "}</p>
+      <p>{text}</p>
+      {richBlocks.length ? (
+        <div className="citation-list">
+          {richBlocks.map((block, index) => (
+            <span className="citation-chip" key={`${message.id}-${block.type}-${index}`}>
+              {block.title || block.uri || block.type.toLowerCase()}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {message.noAnswerReason ? <div className="no-answer">No answer: {message.noAnswerReason}</div> : null}
       {message.citations?.length ? (
         <div className="citation-list">
