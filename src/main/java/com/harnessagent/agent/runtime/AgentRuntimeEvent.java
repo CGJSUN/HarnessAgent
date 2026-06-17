@@ -6,13 +6,26 @@ public record AgentRuntimeEvent(
         AgentRuntimeEventType type,
         String content,
         boolean terminal,
+        AgentRuntimeChannel channel,
         Map<String, Object> attributes) {
 
     public AgentRuntimeEvent(AgentRuntimeEventType type, String content, boolean terminal) {
-        this(type, content, terminal, Map.of());
+        this(type, content, terminal, defaultChannel(type, Map.of()), Map.of());
+    }
+
+    public AgentRuntimeEvent(
+            AgentRuntimeEventType type,
+            String content,
+            boolean terminal,
+            Map<String, Object> attributes) {
+        this(type, content, terminal, defaultChannel(type, attributes), attributes);
     }
 
     public AgentRuntimeEvent {
+        if (type == null) {
+            throw new IllegalArgumentException("runtime event type is required");
+        }
+        channel = channel == null ? defaultChannel(type, attributes) : channel;
         attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
     }
 
@@ -52,7 +65,46 @@ public record AgentRuntimeEvent(
         return new AgentRuntimeEvent(AgentRuntimeEventType.DONE, content, true, attributes);
     }
 
+    public static AgentRuntimeEvent plan(String content, Map<String, ?> attributes) {
+        return new AgentRuntimeEvent(
+                AgentRuntimeEventType.STATUS,
+                content,
+                false,
+                AgentRuntimeChannel.PLAN_UPDATE,
+                copyAttributes(attributes));
+    }
+
+    public static AgentRuntimeEvent diagnostic(String content, Map<String, ?> attributes) {
+        return new AgentRuntimeEvent(
+                AgentRuntimeEventType.STATUS,
+                content,
+                false,
+                AgentRuntimeChannel.DIAGNOSTIC,
+                copyAttributes(attributes));
+    }
+
     private static Map<String, Object> copyAttributes(Map<String, ?> attributes) {
         return attributes == null ? Map.of() : Map.copyOf(attributes);
+    }
+
+    private static AgentRuntimeChannel defaultChannel(
+            AgentRuntimeEventType type,
+            Map<String, ?> attributes) {
+        if (attributes != null) {
+            Object requested = attributes.get("channel");
+            if (requested != null) {
+                try {
+                    return AgentRuntimeChannel.valueOf(String.valueOf(requested).trim().toUpperCase());
+                } catch (IllegalArgumentException ignored) {
+                    // Fall through to the type-based default.
+                }
+            }
+        }
+        return switch (type) {
+            case DELTA, DONE -> AgentRuntimeChannel.USER_VISIBLE;
+            case TOOL -> AgentRuntimeChannel.TOOL_EVENT;
+            case STATUS -> AgentRuntimeChannel.SYSTEM_NOTICE;
+            case SUBAGENT, ERROR -> AgentRuntimeChannel.DIAGNOSTIC;
+        };
     }
 }

@@ -98,6 +98,7 @@ public class HarnessAgentProperties {
         private String workspace;
         private AgentWorkloadType workloadType = AgentWorkloadType.OFFICE;
         private boolean compaction = true;
+        private int compactionMessageThreshold = 24;
         private int maxIters = 3;
         private AgentBudget budget = new AgentBudget();
         private List<String> fallbackProviders = new ArrayList<>();
@@ -164,6 +165,14 @@ public class HarnessAgentProperties {
 
         public void setCompaction(boolean compaction) {
             this.compaction = compaction;
+        }
+
+        public int getCompactionMessageThreshold() {
+            return compactionMessageThreshold;
+        }
+
+        public void setCompactionMessageThreshold(int compactionMessageThreshold) {
+            this.compactionMessageThreshold = compactionMessageThreshold <= 1 ? 2 : compactionMessageThreshold;
         }
 
         public int getMaxIters() {

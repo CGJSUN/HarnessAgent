@@ -62,7 +62,8 @@ public class ToolController {
                         safeSet(request.allowedRoles())),
                 ToolAuditPolicy.enabled(
                         safeSet(request.sensitiveParameters()),
-                        safeSet(request.sensitiveResultFields()))));
+                        safeSet(request.sensitiveResultFields())),
+                request.workloadType()));
     }
 
     @GetMapping

@@ -2,6 +2,7 @@ package com.harnessagent.tooling.domain;
 
 import java.time.Instant;
 import java.util.UUID;
+import com.harnessagent.production.config.AgentWorkloadType;
 
 public record ToolDefinition(
         String id,
@@ -18,6 +19,7 @@ public record ToolDefinition(
         ToolParameterSchema parameterSchema,
         ToolPermissionPolicy permissionPolicy,
         ToolAuditPolicy auditPolicy,
+        AgentWorkloadType workloadType,
         Instant createdAt,
         Instant updatedAt) {
 
@@ -34,8 +36,46 @@ public record ToolDefinition(
         parameterSchema = parameterSchema == null ? ToolParameterSchema.empty() : parameterSchema;
         permissionPolicy = permissionPolicy == null ? ToolPermissionPolicy.allowAll() : permissionPolicy;
         auditPolicy = auditPolicy == null ? ToolAuditPolicy.standard() : auditPolicy;
+        workloadType = workloadType == null ? AgentWorkloadType.OFFICE : workloadType;
         createdAt = createdAt == null ? Instant.now() : createdAt;
         updatedAt = updatedAt == null ? createdAt : updatedAt;
+    }
+
+    public ToolDefinition(
+            String id,
+            String tenantId,
+            String name,
+            String description,
+            String ownerSystem,
+            String ownerId,
+            ToolSourceType sourceType,
+            String sourceRef,
+            ToolRiskLevel riskLevel,
+            boolean mutating,
+            boolean enabled,
+            ToolParameterSchema parameterSchema,
+            ToolPermissionPolicy permissionPolicy,
+            ToolAuditPolicy auditPolicy,
+            Instant createdAt,
+            Instant updatedAt) {
+        this(
+                id,
+                tenantId,
+                name,
+                description,
+                ownerSystem,
+                ownerId,
+                sourceType,
+                sourceRef,
+                riskLevel,
+                mutating,
+                enabled,
+                parameterSchema,
+                permissionPolicy,
+                auditPolicy,
+                AgentWorkloadType.OFFICE,
+                createdAt,
+                updatedAt);
     }
 
     public ToolDefinition withEnabled(boolean nextEnabled) {
@@ -54,6 +94,7 @@ public record ToolDefinition(
                 parameterSchema,
                 permissionPolicy,
                 auditPolicy,
+                workloadType,
                 createdAt,
                 Instant.now());
     }

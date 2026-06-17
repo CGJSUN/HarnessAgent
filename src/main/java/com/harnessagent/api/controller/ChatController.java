@@ -104,6 +104,7 @@ public class ChatController {
                     .data(new StreamEventResponse(
                             type,
                             StreamEventKind.from(event.type()).name(),
+                            event.channel().name(),
                             event.content(),
                             event.terminal(),
                             (String) event.attributes().get("noAnswerReason"),

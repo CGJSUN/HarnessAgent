@@ -1,0 +1,2 @@
+ALTER TABLE ha_tool_definitions
+    ADD COLUMN IF NOT EXISTS workload_type VARCHAR(32) NOT NULL DEFAULT 'OFFICE';

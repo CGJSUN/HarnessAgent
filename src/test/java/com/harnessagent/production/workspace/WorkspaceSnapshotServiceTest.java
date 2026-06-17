@@ -66,6 +66,56 @@ class WorkspaceSnapshotServiceTest {
                 .hasMessageContaining("does not belong");
     }
 
+    @Test
+    void skipsSymbolicLinksWhenSavingWorkspaceSnapshot() throws Exception {
+        InMemorySnapshotStore store = new InMemorySnapshotStore(SnapshotStoreType.JDBC, "memory://snapshots");
+        WorkspaceSnapshotService service = new WorkspaceSnapshotService(store);
+        RuntimeContextScope context = context("tenant-a", "agent-a", "session-a");
+        Path outside = tempDir.resolve("outside.txt");
+        Files.writeString(outside, "outside-secret");
+        Path workspace = tempDir.resolve("workspace");
+        Files.createDirectories(workspace);
+        Files.writeString(workspace.resolve("state.txt"), "workspace-state");
+        Files.createSymbolicLink(workspace.resolve("leak.txt"), outside);
+        WorkspacePlan plan = new WorkspacePlan(
+                WorkspaceMode.SANDBOX,
+                workspace.toString(),
+                "sandbox:latest",
+                new SnapshotStorePlan(SnapshotStoreType.JDBC, "memory://snapshots"));
+        SnapshotMetadata metadata = service.save(context, plan, workspace, "task-a").orElseThrow();
+        Path restored = tempDir.resolve("restored");
+
+        service.restore(context, metadata.id(), restored);
+
+        assertThat(Files.readString(restored.resolve("state.txt"))).isEqualTo("workspace-state");
+        assertThat(Files.exists(restored.resolve("leak.txt"))).isFalse();
+    }
+
+    @Test
+    void rejectsRestoreWhenTargetParentIsSymbolicLink() throws Exception {
+        InMemorySnapshotStore store = new InMemorySnapshotStore(SnapshotStoreType.JDBC, "memory://snapshots");
+        WorkspaceSnapshotService service = new WorkspaceSnapshotService(store);
+        RuntimeContextScope context = context("tenant-a", "agent-a", "session-a");
+        Path workspace = tempDir.resolve("workspace");
+        Files.createDirectories(workspace.resolve("linked"));
+        Files.writeString(workspace.resolve("linked/state.txt"), "workspace-state");
+        WorkspacePlan plan = new WorkspacePlan(
+                WorkspaceMode.SANDBOX,
+                workspace.toString(),
+                "sandbox:latest",
+                new SnapshotStorePlan(SnapshotStoreType.JDBC, "memory://snapshots"));
+        SnapshotMetadata metadata = service.save(context, plan, workspace, "task-a").orElseThrow();
+        Path outside = tempDir.resolve("outside");
+        Path restored = tempDir.resolve("restored");
+        Files.createDirectories(outside);
+        Files.createDirectories(restored);
+        Files.createSymbolicLink(restored.resolve("linked"), outside);
+
+        assertThatThrownBy(() -> service.restore(context, metadata.id(), restored))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("symbolic link");
+    }
+
     private static RuntimeContextScope context(String tenantId, String agentId, String sessionId) {
         return new RuntimeContextScope(
                 tenantId,

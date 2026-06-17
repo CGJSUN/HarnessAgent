@@ -98,12 +98,14 @@ public class PersonalWorkspaceService {
     }
 
     private Path rootDirectory(RuntimeContextScope context) {
-        HarnessAgentProperties.AgentDefinition agentDefinition = properties.getAgents().get(context.agentId());
+        String agentId = safePathSegment(context.agentId(), "agentId");
+        String ownerId = safePathSegment(context.userId(), "userId");
+        HarnessAgentProperties.AgentDefinition agentDefinition = properties.getAgents().get(agentId);
         String configured = agentDefinition == null ? null : agentDefinition.getWorkspace();
         Path agentRoot = configured == null || configured.isBlank()
-                ? Path.of(".harness-agent/personal/workspaces/" + context.agentId())
+                ? Path.of(".harness-agent", "personal", "workspaces", agentId)
                 : Path.of(configured.trim());
-        return agentRoot.resolve(context.userId()).toAbsolutePath().normalize();
+        return agentRoot.resolve(ownerId).toAbsolutePath().normalize();
     }
 
     private static Map<String, Path> directories(Path root) {
@@ -123,13 +125,28 @@ public class PersonalWorkspaceService {
         Map<String, String> relativeDirectories = new LinkedHashMap<>();
         directories.forEach((key, path) -> relativeDirectories.put(key, path.getFileName().toString()));
         return new PersonalWorkspaceMetadata(
-                context.userId(),
-                context.agentId(),
-                context.userId() + "/" + context.agentId(),
-                context.agentId() + ":*",
+                safePathSegment(context.userId(), "userId"),
+                safePathSegment(context.agentId(), "agentId"),
+                safePathSegment(context.userId(), "userId") + "/" + safePathSegment(context.agentId(), "agentId"),
+                safePathSegment(context.agentId(), "agentId") + ":*",
                 relativeDirectories,
                 now,
                 now);
+    }
+
+    private static String safePathSegment(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " is required for personal workspace path");
+        }
+        String segment = value.trim();
+        if (segment.equals(".")
+                || segment.equals("..")
+                || segment.contains("/")
+                || segment.contains("\\")
+                || Path.of(segment).getNameCount() != 1) {
+            throw new IllegalArgumentException(field + " must be a single safe path segment");
+        }
+        return segment;
     }
 
     private void createDirectory(Path directory) {

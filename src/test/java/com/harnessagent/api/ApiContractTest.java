@@ -158,6 +158,7 @@ class ApiContractTest {
         StreamEventResponse response = new StreamEventResponse(
                 "done",
                 "COMPLETION",
+                "USER_VISIBLE",
                 "answer",
                 true,
                 "no accessible evidence",
@@ -170,6 +171,7 @@ class ApiContractTest {
                 .containsExactlyInAnyOrder(
                         "type",
                         "kind",
+                        "channel",
                         "content",
                         "terminal",
                         "noAnswerReason",
@@ -177,6 +179,7 @@ class ApiContractTest {
                         "metadata");
         assertThat(json.get("type").asText()).isEqualTo("done");
         assertThat(json.get("kind").asText()).isEqualTo("COMPLETION");
+        assertThat(json.get("channel").asText()).isEqualTo("USER_VISIBLE");
         assertThat(json.get("terminal").asBoolean()).isTrue();
         assertThat(json.get("metadata").get("tokenCount").asInt()).isEqualTo(12);
         assertThat(AgentRuntimeEventType.STATUS.name().toLowerCase()).isEqualTo("status");

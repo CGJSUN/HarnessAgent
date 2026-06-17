@@ -19,6 +19,7 @@ import com.harnessagent.production.sandbox.SandboxExecutor;
 import com.harnessagent.production.sandbox.SandboxExecutorRegistry;
 import com.harnessagent.production.telemetry.RuntimeTelemetry;
 import com.harnessagent.security.application.PromptInjectionGuard;
+import com.harnessagent.workspace.application.PlanModeService;
 import com.harnessagent.tooling.application.ToolService;
 import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolAuditPolicy;
@@ -71,6 +72,40 @@ class ToolServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> sanitizedRequest = (Map<String, Object>) audit.sanitizedOutput().get("request");
         assertThat(sanitizedRequest).containsEntry("token", "[REDACTED]");
+    }
+
+    @Test
+    void planModeAllowsReadOnlyToolsAndDoesNotExposeInternalMarkerToExecutor() {
+        ToolDefinition tool = service.registerTool(readOnlyRegistration());
+
+        ToolExecutionResult result = service.execute(command(
+                tool,
+                Map.of("customerId", "C-1", PlanModeService.PLAN_MODE_PARAMETER, true),
+                false,
+                null));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> request = (Map<String, Object>) result.output().get("request");
+        assertThat(request).containsOnly(Map.entry("customerId", "C-1"));
+    }
+
+    @Test
+    void planModeRejectsSideEffectToolsBeforeConfirmationOrExecution() {
+        ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
+
+        ToolExecutionResult result = service.execute(command(
+                tool,
+                Map.of(
+                        "ticketId", "T-1",
+                        "status", "approved",
+                        PlanModeService.PLAN_MODE_PARAMETER, true),
+                false,
+                "plan-1"));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.DENIED);
+        assertThat(result.message()).contains("Plan mode is read-only");
+        assertThat(executor.invocations).isZero();
     }
 
     @Test
@@ -152,6 +187,11 @@ class ToolServiceTest {
     @Test
     void reviewerApprovalAllowsHighRiskToolAndIsAudited() {
         ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
+        service.execute(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "approved"),
+                false,
+                "idem-1"));
 
         ToolExecutionResult result = service.execute(new ToolExecutionCommand(
                 "tenant-a",
@@ -168,7 +208,7 @@ class ToolServiceTest {
                 "idem-1"));
 
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
-        ToolAuditRecord audit = service.listAudit("tenant-a").get(0);
+        ToolAuditRecord audit = service.listAudit("tenant-a").get(1);
         assertThat(audit.approvalId()).isEqualTo("approval-1");
         assertThat(audit.reviewerId()).isEqualTo("reviewer-a");
     }
@@ -182,6 +222,11 @@ class ToolServiceTest {
                 Map.of("ticketId", "T-1", "status", "approved"),
                 true,
                 "idem-1");
+        service.execute(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "approved"),
+                false,
+                "idem-1"));
         ToolExecutionResult firstResult = service.execute(first);
         ToolExecutionResult duplicate = service.execute(first);
 
@@ -213,10 +258,20 @@ class ToolServiceTest {
     void rejectsIdempotentRetryWhenParametersChange() {
         ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
 
+        service.execute(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "approved"),
+                false,
+                "idem-1"));
         ToolExecutionResult firstResult = service.execute(command(
                 tool,
                 Map.of("ticketId", "T-1", "status", "approved"),
                 true,
+                "idem-1"));
+        service.execute(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "rejected"),
+                false,
                 "idem-1"));
         ToolExecutionResult conflict = service.execute(command(
                 tool,
@@ -281,6 +336,11 @@ class ToolServiceTest {
         RecordingSandboxExecutor sandboxExecutor = new RecordingSandboxExecutor();
         ToolService sandboxedService = sandboxedToolService(sandboxExecutor);
         ToolDefinition tool = sandboxedService.registerTool(shellRegistration());
+        sandboxedService.execute(command(
+                tool,
+                Map.of("command", "pwd"),
+                false,
+                null));
 
         ToolExecutionResult result = sandboxedService.execute(command(
                 tool,
@@ -297,6 +357,64 @@ class ToolServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> sandbox = (Map<String, Object>) result.output().get("sandbox");
         assertThat(sandbox).containsEntry("mode", SandboxExecutionMode.LOCAL_PROCESS.name());
+        ToolAuditRecord audit = sandboxedService.listAudit("tenant-a").get(1);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> stdoutSummary = (Map<String, Object>) audit.sanitizedOutput().get("stdout");
+        assertThat(stdoutSummary).containsEntry("size", "sandbox-ok".length());
+        assertThat(stdoutSummary).containsKey("sha256");
+    }
+
+    @Test
+    void directConfirmedSandboxedToolWithoutPendingConfirmationIsDenied() {
+        RecordingSandboxExecutor sandboxExecutor = new RecordingSandboxExecutor();
+        ToolService sandboxedService = sandboxedToolService(sandboxExecutor);
+        ToolDefinition tool = sandboxedService.registerTool(shellRegistration());
+
+        ToolExecutionResult result = sandboxedService.execute(command(
+                tool,
+                Map.of("command", "pwd"),
+                true,
+                null));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.DENIED);
+        assertThat(result.message()).contains("No matching pending confirmation");
+        assertThat(sandboxExecutor.invocations).isZero();
+    }
+
+    @Test
+    void dangerousExecutionParametersFailClosedToSandboxEvenWithoutExplicitWorkloadType() {
+        RecordingSandboxExecutor sandboxExecutor = new RecordingSandboxExecutor();
+        ToolService sandboxedService = sandboxedToolService(sandboxExecutor);
+        ToolDefinition tool = sandboxedService.registerTool(new ToolRegistration(
+                "tenant-a",
+                "custom.runner",
+                "Custom internal runner.",
+                "Runner",
+                "owner-a",
+                ToolSourceType.INTERNAL,
+                "runner",
+                ToolRiskLevel.READ_ONLY,
+                false,
+                true,
+                schema(Set.of("command"), Set.of(), Map.of(), Set.of()),
+                permissionPolicy(),
+                ToolAuditPolicy.standard()));
+
+        ToolExecutionResult pending = sandboxedService.execute(command(
+                tool,
+                Map.of("command", "pwd"),
+                false,
+                null));
+        ToolExecutionResult confirmed = sandboxedService.execute(command(
+                tool,
+                Map.of("command", "pwd"),
+                true,
+                null));
+
+        assertThat(pending.status()).isEqualTo(ToolExecutionStatus.PENDING_CONFIRMATION);
+        assertThat(pending.operationSummary()).containsEntry("workloadType", AgentWorkloadType.UNTRUSTED.name());
+        assertThat(confirmed.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
+        assertThat(sandboxExecutor.invocations).isEqualTo(1);
     }
 
     private static ToolRegistration readOnlyRegistration() {
@@ -351,7 +469,8 @@ class ToolServiceTest {
                 true,
                 schema(Set.of("command"), Set.of("arguments", "environment"), Map.of(), Set.of()),
                 permissionPolicy(),
-                ToolAuditPolicy.standard());
+                ToolAuditPolicy.standard(),
+                AgentWorkloadType.SHELL);
     }
 
     private static ToolService sandboxedToolService(SandboxExecutor sandboxExecutor) {

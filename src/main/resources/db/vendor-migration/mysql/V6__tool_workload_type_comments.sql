@@ -1,0 +1,1 @@
+ALTER TABLE ha_tool_definitions MODIFY COLUMN workload_type VARCHAR(32) NOT NULL DEFAULT 'OFFICE' COMMENT 'Tool execution workload type used to route code, shell, SQL, or untrusted tools through sandbox policy.';

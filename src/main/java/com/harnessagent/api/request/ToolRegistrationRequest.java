@@ -1,5 +1,6 @@
 package com.harnessagent.api.request;
 
+import com.harnessagent.production.config.AgentWorkloadType;
 import com.harnessagent.tooling.domain.ToolRiskLevel;
 import com.harnessagent.tooling.domain.ToolSourceType;
 import java.util.Map;
@@ -24,5 +25,6 @@ public record ToolRegistrationRequest(
         Set<String> allowedUsers,
         Set<String> allowedAgents,
         Set<String> allowedDepartments,
-        Set<String> allowedRoles) {
+        Set<String> allowedRoles,
+        AgentWorkloadType workloadType) {
 }

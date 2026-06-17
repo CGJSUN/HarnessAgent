@@ -18,6 +18,7 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import com.harnessagent.production.config.AgentWorkloadType;
 import com.harnessagent.tooling.application.ToolService;
 import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolAuditPolicy;
@@ -55,7 +56,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
                 update ha_tool_definitions
                 set tenant_id = ?, name = ?, description = ?, owner_system = ?, owner_id = ?, source_type = ?,
                     source_ref = ?, risk_level = ?, mutating = ?, enabled = ?, parameter_schema_json = ?,
-                    permission_policy_json = ?, audit_policy_json = ?, created_at = ?, updated_at = ?
+                    permission_policy_json = ?, audit_policy_json = ?, workload_type = ?, created_at = ?, updated_at = ?
                 where id = ?
                 """,
                 definition.tenantId(),
@@ -71,6 +72,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
                 JsonColumn.write(objectMapper, definition.parameterSchema()),
                 JsonColumn.write(objectMapper, definition.permissionPolicy()),
                 JsonColumn.write(objectMapper, definition.auditPolicy()),
+                definition.workloadType().name(),
                 timestamp(definition.createdAt()),
                 timestamp(definition.updatedAt()),
                 definition.id());
@@ -79,8 +81,8 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
                     insert into ha_tool_definitions (
                         id, tenant_id, name, description, owner_system, owner_id, source_type, source_ref,
                         risk_level, mutating, enabled, parameter_schema_json, permission_policy_json,
-                        audit_policy_json, created_at, updated_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        audit_policy_json, workload_type, created_at, updated_at
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     definition.id(),
                     definition.tenantId(),
@@ -96,6 +98,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
                     JsonColumn.write(objectMapper, definition.parameterSchema()),
                     JsonColumn.write(objectMapper, definition.permissionPolicy()),
                     JsonColumn.write(objectMapper, definition.auditPolicy()),
+                    definition.workloadType().name(),
                     timestamp(definition.createdAt()),
                     timestamp(definition.updatedAt()));
         }
@@ -111,7 +114,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
             return Optional.ofNullable(jdbc.queryForObject("""
                     select id, tenant_id, name, description, owner_system, owner_id, source_type, source_ref,
                            risk_level, mutating, enabled, parameter_schema_json, permission_policy_json,
-                           audit_policy_json, created_at, updated_at
+                           audit_policy_json, workload_type, created_at, updated_at
                     from ha_tool_definitions
                     where id = ?
                     """, toolMapper(), toolId.trim()));
@@ -125,7 +128,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
         return jdbc.query("""
                 select id, tenant_id, name, description, owner_system, owner_id, source_type, source_ref,
                        risk_level, mutating, enabled, parameter_schema_json, permission_policy_json,
-                       audit_policy_json, created_at, updated_at
+                       audit_policy_json, workload_type, created_at, updated_at
                 from ha_tool_definitions
                 where tenant_id = ?
                 order by name asc, id asc
@@ -225,6 +228,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
                 JsonColumn.read(objectMapper, rs.getString("parameter_schema_json"), ToolParameterSchema.class),
                 JsonColumn.read(objectMapper, rs.getString("permission_policy_json"), ToolPermissionPolicy.class),
                 JsonColumn.read(objectMapper, rs.getString("audit_policy_json"), ToolAuditPolicy.class),
+                AgentWorkloadType.valueOf(rs.getString("workload_type")),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"));
     }

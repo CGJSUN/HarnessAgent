@@ -5,7 +5,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
@@ -89,7 +91,9 @@ public class WorkspaceSnapshotService {
                 ZipOutputStream zip = new ZipOutputStream(bytes)) {
             if (workspace != null && Files.isDirectory(workspace)) {
                 try (var paths = Files.walk(workspace)) {
-                    for (Path path : paths.filter(Files::isRegularFile).toList()) {
+                    for (Path path : paths
+                            .filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                            .toList()) {
                         Path relative = workspace.relativize(path);
                         zip.putNextEntry(new ZipEntry(relative.toString().replace('\\', '/')));
                         Files.copy(path, zip);
@@ -108,6 +112,7 @@ public class WorkspaceSnapshotService {
         try {
             Files.createDirectories(workspace);
             Path root = workspace.toAbsolutePath().normalize();
+            rejectSymlink(root, root);
             try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(content))) {
                 ZipEntry entry;
                 while ((entry = zip.getNextEntry()) != null) {
@@ -119,12 +124,31 @@ public class WorkspaceSnapshotService {
                         throw new IllegalStateException("Snapshot contains an unsafe path: " + entry.getName());
                     }
                     Files.createDirectories(target.getParent());
-                    Files.copy(zip, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    rejectSymlink(root, target.getParent());
+                    if (Files.isSymbolicLink(target)) {
+                        throw new IllegalStateException("Snapshot restore target is a symbolic link: " + entry.getName());
+                    }
+                    Files.copy(zip, target, StandardCopyOption.REPLACE_EXISTING);
                     zip.closeEntry();
                 }
             }
         } catch (IOException ex) {
             throw new IllegalStateException("Unable to restore workspace: " + ex.getMessage(), ex);
+        }
+    }
+
+    private static void rejectSymlink(Path root, Path path) throws IOException {
+        Path normalized = path.toAbsolutePath().normalize();
+        if (!normalized.startsWith(root)) {
+            throw new IllegalStateException("Snapshot path escapes workspace.");
+        }
+        Path current = root;
+        Path relative = root.relativize(normalized);
+        for (Path segment : relative) {
+            current = current.resolve(segment);
+            if (Files.isSymbolicLink(current)) {
+                throw new IllegalStateException("Snapshot path contains a symbolic link.");
+            }
         }
     }
 

@@ -26,6 +26,7 @@ import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.session.domain.ChatMessage;
 import com.harnessagent.session.persistence.SessionStore;
+import com.harnessagent.workspace.application.ContextCompactionService;
 import java.util.ArrayList;
 import java.time.Duration;
 import java.time.Instant;
@@ -56,6 +57,7 @@ public class ChatService {
     private final ModelConfigurationResolver modelConfigurationResolver;
     private final AgentSessionRecoveryService recoveryService;
     private final PromptInjectionGuard promptInjectionGuard;
+    private final ContextCompactionService contextCompactionService;
 
     @Autowired
     public ChatService(
@@ -68,7 +70,8 @@ public class ChatService {
             HarnessAgentProperties properties,
             ModelConfigurationResolver modelConfigurationResolver,
             AgentSessionRecoveryService recoveryService,
-            PromptInjectionGuard promptInjectionGuard) {
+            PromptInjectionGuard promptInjectionGuard,
+            ContextCompactionService contextCompactionService) {
         this.runtimeContextFactory = runtimeContextFactory;
         this.sessionStore = sessionStore;
         this.agentRuntime = agentRuntime;
@@ -79,6 +82,34 @@ public class ChatService {
         this.modelConfigurationResolver = modelConfigurationResolver;
         this.recoveryService = recoveryService;
         this.promptInjectionGuard = promptInjectionGuard;
+        this.contextCompactionService = contextCompactionService == null
+                ? ContextCompactionService.disabled()
+                : contextCompactionService;
+    }
+
+    public ChatService(
+            RuntimeContextFactory runtimeContextFactory,
+            SessionStore sessionStore,
+            AgentRuntime agentRuntime,
+            KnowledgeService knowledgeService,
+            RuntimeTelemetry telemetry,
+            BudgetLimiter budgetLimiter,
+            HarnessAgentProperties properties,
+            ModelConfigurationResolver modelConfigurationResolver,
+            AgentSessionRecoveryService recoveryService,
+            PromptInjectionGuard promptInjectionGuard) {
+        this(
+                runtimeContextFactory,
+                sessionStore,
+                agentRuntime,
+                knowledgeService,
+                telemetry,
+                budgetLimiter,
+                properties,
+                modelConfigurationResolver,
+                recoveryService,
+                promptInjectionGuard,
+                ContextCompactionService.disabled());
     }
 
     public ChatService(
@@ -250,7 +281,7 @@ public class ChatService {
 
     private List<ChatMessage> messagesForRuntime(RuntimeContextScope context, List<ChatMessage> messages) {
         if (messages.isEmpty() || !recoveryService.agentScopeStatePresent(context)) {
-            return messages;
+            return contextCompactionService.compactIfNeeded(context, messages);
         }
         return List.of(messages.get(messages.size() - 1));
     }

@@ -85,6 +85,7 @@ public final class JdbcStoreTestSupport {
                     parameter_schema_json clob not null,
                     permission_policy_json clob not null,
                     audit_policy_json clob not null,
+                    workload_type varchar(32) not null,
                     created_at timestamp not null,
                     updated_at timestamp not null
                 )

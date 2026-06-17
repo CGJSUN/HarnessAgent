@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.harnessagent.agent.runtime.AgentReply;
 import com.harnessagent.agent.runtime.AgentRunRequest;
 import com.harnessagent.agent.runtime.AgentRuntime;
+import com.harnessagent.agent.runtime.AgentRuntimeChannel;
 import com.harnessagent.agent.runtime.AgentRuntimeEvent;
 import com.harnessagent.agent.runtime.AgentRuntimeEventType;
 import com.harnessagent.config.HarnessAgentProperties;
@@ -30,8 +31,12 @@ import com.harnessagent.rag.application.TextTokenizer;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.security.application.PromptInjectionGuard;
 import com.harnessagent.session.domain.ChatMessage;
+import com.harnessagent.session.domain.MessageRole;
 import com.harnessagent.session.persistence.InMemorySessionStore;
+import com.harnessagent.workspace.application.ContextCompactionService;
+import com.harnessagent.workspace.application.PersonalWorkspaceService;
 import io.agentscope.core.state.AgentState;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,6 +44,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -47,6 +53,9 @@ import com.harnessagent.chat.domain.ChatCommand;
 import com.harnessagent.chat.domain.ChatResult;
 
 class ChatServiceTest {
+
+    @TempDir
+    Path tempDir;
 
     private final RuntimeContextFactory contextFactory = new RuntimeContextFactory();
     private final InMemorySessionStore sessionStore = new InMemorySessionStore();
@@ -142,19 +151,69 @@ class ChatServiceTest {
     @Test
     void streamsEventsAndPersistsAssistantMessageOnCompletion() {
         StepVerifier.create(chatService.stream(command("stream me")))
-                .expectNextMatches(event -> event.content().equals("started"))
-                .expectNextMatches(event -> event.content().equals("chunk-1"))
+                .expectNextMatches(event -> event.content().equals("started")
+                        && event.channel() == AgentRuntimeChannel.SYSTEM_NOTICE)
+                .expectNextMatches(event -> event.content().equals("chunk-1")
+                        && event.channel() == AgentRuntimeChannel.USER_VISIBLE)
                 .expectNextMatches(event -> event.content().equals("chunk-2"))
                 .expectNextMatches(event -> event.type() == AgentRuntimeEventType.TOOL
+                        && event.channel() == AgentRuntimeChannel.TOOL_EVENT
                         && event.attributes().get("toolStatus").equals("started"))
                 .expectNextMatches(event -> event.type() == AgentRuntimeEventType.SUBAGENT
+                        && event.channel() == AgentRuntimeChannel.DIAGNOSTIC
                         && event.attributes().get("subagentId").equals("researcher"))
-                .expectNextMatches(event -> event.content().equals("completed"))
+                .expectNextMatches(event -> event.content().equals("completed")
+                        && event.channel() == AgentRuntimeChannel.USER_VISIBLE)
                 .verifyComplete();
 
         assertThat(sessionStore.listMessages(agentRuntime.requests.get(0).context()))
                 .extracting(ChatMessage::content)
                 .containsExactly("stream me", "chunk-1chunk-2");
+    }
+
+    @Test
+    void compactsLongContextBeforeCallingRuntimeWithoutDeletingSessionHistory() {
+        HarnessAgentProperties properties = new HarnessAgentProperties();
+        HarnessAgentProperties.AgentDefinition agent = new HarnessAgentProperties.AgentDefinition();
+        agent.setWorkspace(tempDir.resolve("agent-a").toString());
+        agent.setCompactionMessageThreshold(3);
+        properties.getAgents().put("agent-a", agent);
+        ProductionRuntimeProperties runtimeProperties = new ProductionRuntimeProperties();
+        ChatService service = new ChatService(
+                contextFactory,
+                sessionStore,
+                agentRuntime,
+                knowledgeService,
+                RuntimeTelemetry.noop(),
+                new BudgetLimiter(runtimeProperties, new RecordingBudgetCounterStore()),
+                properties,
+                new ModelConfigurationResolver(properties, runtimeProperties),
+                AgentSessionRecoveryService.noop(sessionStore),
+                new PromptInjectionGuard(),
+                new ContextCompactionService(new PersonalWorkspaceService(properties), properties));
+        com.harnessagent.runtime.RuntimeContextScope context =
+                contextFactory.create("tenant-a", "user-a", "agent-a", "session-a");
+        sessionStore.appendMessage(context, ChatMessage.user("Goal: finish workspace runtime."));
+        sessionStore.appendMessage(context, ChatMessage.assistant("finding: workspace snapshot is ready."));
+        sessionStore.appendMessage(context, ChatMessage.user("Decision: persist the summary. Next: test compaction."));
+
+        service.chat(command("continue with latest request")).block();
+
+        List<ChatMessage> runtimeMessages = agentRuntime.requests.get(0).messages();
+        assertThat(runtimeMessages).hasSize(2);
+        assertThat(runtimeMessages.get(0).role()).isEqualTo(MessageRole.SYSTEM);
+        assertThat(runtimeMessages.get(0).content()).contains("Context compaction summary.");
+        assertThat(runtimeMessages.get(0).contentBlocks())
+                .anySatisfy(block -> assertThat(block.uri()).startsWith("workspace://sessions/"));
+        assertThat(runtimeMessages.get(1).content()).isEqualTo("continue with latest request");
+        assertThat(sessionStore.listMessages(context))
+                .extracting(ChatMessage::content)
+                .contains(
+                        "Goal: finish workspace runtime.",
+                        "finding: workspace snapshot is ready.",
+                        "Decision: persist the summary. Next: test compaction.",
+                        "continue with latest request",
+                        "answer:continue with latest request");
     }
 
     @Test

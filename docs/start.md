@@ -188,6 +188,14 @@ sessionId      = <personal-session-id>
 
 个人 Agent 工作区按 owner 和 agent 隔离。默认根目录来自 Agent 配置的 `workspace`，并在其下按 owner 创建独立目录；未配置时使用 `.harness-agent/personal/workspaces/<agentId>/<ownerId>`。初始化后目录包含 `persona/`、`memory/`、`skills/`、`subagents/`、`plans/`、`sessions/`、`artifacts/` 和 `workspace.json` 元数据。工作区路径解析只接受相对路径或 `workspace://` URI，并拒绝绝对路径与 `..` 穿越。服务层已经支持上传内容、保存生成文件、定位引用 metadata、下载和删除；前端文件浏览视图由后续工作台任务接管。
 
+长任务恢复会在 `sessions/session-<hash>/runtime.json` 中记录工作区和沙箱快照引用、任务 ID 与计划路径。应用重启或后台任务恢复时，`PersonalWorkspaceRuntimeStateService` 可按引用恢复 workspace root 或 session 级 sandbox 目录。
+
+上下文接近配置阈值时，`ContextCompactionService` 会生成结构化摘要并写入 `workspace://sessions/.../compactions/context-*.json`，发送给模型的历史会被折叠为系统摘要消息和当前轮次消息，原始 session 消息仍保留。摘要字段覆盖目标、当前状态、关键发现、决策、文件引用、下一步以及源消息 ID。
+
+Plan Mode 通过 `PlanModeService` 只读生成计划文件，落盘到 `workspace://plans/plan-*.md`。计划模式下工具执行会剥离内部 `__planMode` 标记；只读工具可执行，mutating、高风险或沙箱类工具会在 preflight 阶段拒绝，避免计划阶段产生副作用。
+
+流式事件包含展示 channel：`USER_VISIBLE`、`TOOL_EVENT`、`PLAN_UPDATE`、`SYSTEM_NOTICE` 和 `DIAGNOSTIC`。SSE 的 `type` 和 `kind` 兼容旧客户端，新增 `channel` 用于前端默认只展示用户可见输出，并在 trace/诊断视图中展示工具、计划和系统事件。
+
 ## 5. 知识库 RAG
 
 RAG 目标不是简单向量检索，而是可追溯的个人知识和记忆访问。企业版中的租户、部门和角色 ACL 在个人版中降级为遗留兼容；个人版默认按 owner、Agent、工作区和知识源可见范围过滤。

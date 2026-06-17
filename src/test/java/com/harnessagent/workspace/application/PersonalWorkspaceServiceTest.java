@@ -95,6 +95,31 @@ class PersonalWorkspaceServiceTest {
                 .hasMessageContaining("must be relative");
     }
 
+    @Test
+    void rejectsUnsafeOwnerOrAgentPathSegments() {
+        HarnessAgentProperties properties = new HarnessAgentProperties();
+        PersonalWorkspaceService service = new PersonalWorkspaceService(properties, objectMapper);
+
+        assertThatThrownBy(() -> service.layout(new RuntimeContextScope(
+                "personal",
+                "../owner",
+                "personal-agent",
+                "session-a",
+                "../owner",
+                "session-a")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("single safe path segment");
+        assertThatThrownBy(() -> service.layout(new RuntimeContextScope(
+                "personal",
+                "owner-a",
+                "agent/evil",
+                "session-a",
+                "owner-a",
+                "session-a")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("single safe path segment");
+    }
+
     private static HarnessAgentProperties properties(Path workspaceRoot) {
         HarnessAgentProperties properties = new HarnessAgentProperties();
         HarnessAgentProperties.AgentDefinition agent = new HarnessAgentProperties.AgentDefinition();

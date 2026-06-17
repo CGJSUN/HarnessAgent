@@ -70,7 +70,7 @@ class DurablePersistenceMigrationTest {
             }
 
             assertThat(tableComments).isEqualTo(14);
-            assertThat(columnComments).isEqualTo(127);
+            assertThat(columnComments).isEqualTo(128);
             assertThat(sessionContentBlocksColumn).isTrue();
         }
     }
