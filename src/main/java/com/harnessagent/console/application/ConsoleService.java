@@ -25,7 +25,7 @@ import com.harnessagent.security.domain.SecurityPrincipal;
 import com.harnessagent.session.persistence.SessionStore;
 import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
-import com.harnessagent.tooling.domain.ToolExecutionStatus;
+import com.harnessagent.tooling.domain.ToolPendingConfirmation;
 import com.harnessagent.tooling.application.ToolService;
 import com.harnessagent.rag.domain.KnowledgeSource;
 import com.harnessagent.security.application.SkillGovernanceService;
@@ -85,20 +85,12 @@ public class ConsoleService {
                         record.sessionId(),
                         record.durationMillis()))
                 .toList();
-        List<ToolConfirmationView> confirmations = toolAudit.stream()
-                .filter(record -> record.status() == ToolExecutionStatus.PENDING_CONFIRMATION)
-                .map(record -> new ToolConfirmationView(
-                        record.toolId(),
-                        record.toolName(),
-                        record.sessionId(),
-                        record.sanitizedInput(),
-                        Map.of(
-                                "toolId", record.toolId(),
-                                "toolName", record.toolName(),
-                                "riskLevel", record.riskLevel().name(),
-                                "status", record.status().name(),
-                                "parameters", record.sanitizedInput()),
-                        record.idempotencyKey()))
+        List<ToolConfirmationView> confirmations = toolService.listPendingConfirmations(
+                        principal.tenantId(),
+                        principal.userId(),
+                        agentId,
+                        context.sessionId()).stream()
+                .map(ConsoleService::confirmationView)
                 .toList();
         return new UserConsoleView(
                 sessionStore.listSessions(context.tenantId(), context.userId(), context.agentId()),
@@ -107,6 +99,19 @@ public class ConsoleService {
                 toolStatus,
                 confirmations,
                 List.of());
+    }
+
+    private static ToolConfirmationView confirmationView(ToolPendingConfirmation pending) {
+        return new ToolConfirmationView(
+                pending.confirmationId(),
+                pending.toolId(),
+                pending.toolName(),
+                pending.sessionId(),
+                pending.riskLevel().name(),
+                pending.status().name(),
+                pending.sanitizedInput(),
+                pending.operationSummary(),
+                pending.idempotencyKey());
     }
 
     public List<AgentManagementView> listAgents(SecurityPrincipal principal) {

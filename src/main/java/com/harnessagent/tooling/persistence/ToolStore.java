@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
+import com.harnessagent.tooling.domain.ToolPendingConfirmation;
 import com.harnessagent.tooling.execution.ToolExecutionResult;
 
 public interface ToolStore {
@@ -21,4 +22,16 @@ public interface ToolStore {
     Optional<ToolIdempotencyRecord> findIdempotentResult(String idempotencyKey);
 
     void saveIdempotentResult(String idempotencyKey, String parameterFingerprint, ToolExecutionResult result);
+
+    ToolPendingConfirmation savePendingConfirmation(ToolPendingConfirmation confirmation);
+
+    Optional<ToolPendingConfirmation> findPendingConfirmation(String confirmationId);
+
+    boolean claimPendingConfirmation(String confirmationId, String decisionReason);
+
+    List<ToolPendingConfirmation> listPendingConfirmations(
+            String tenantId,
+            String userId,
+            String agentId,
+            String sessionId);
 }

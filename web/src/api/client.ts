@@ -276,6 +276,9 @@ export class ApiClient {
     confirmation: ToolConfirmationView,
     confirmed: boolean
   ): Promise<ToolExecutionResult> {
+    if (confirmation.confirmationId) {
+      return this.resumeToolConfirmation(agentId, confirmation, confirmed ? "CONFIRM" : "REJECT");
+    }
     return this.post<ToolExecutionResult>("/api/tools/execute", {
       ...identityPayload(this.getIdentity()),
       agentId,
@@ -286,10 +289,13 @@ export class ApiClient {
       approvalId: confirmed ? stableToolActionId("confirm", confirmation) : "",
       reviewerId: confirmed ? this.getIdentity().userId : "",
       idempotencyKey: stableIdempotencyKey(confirmation)
-    });
+    }, agentHeader(agentId));
   }
 
   rejectToolConfirmation(agentId: string, confirmation: ToolConfirmationView): Promise<ToolExecutionResult> {
+    if (confirmation.confirmationId) {
+      return this.resumeToolConfirmation(agentId, confirmation, "REJECT");
+    }
     return this.post<ToolExecutionResult>("/api/tools/reject", {
       ...identityPayload(this.getIdentity()),
       agentId,
@@ -300,7 +306,29 @@ export class ApiClient {
       approvalId: stableToolActionId("reject", confirmation),
       reviewerId: this.getIdentity().userId,
       idempotencyKey: stableIdempotencyKey(confirmation)
-    });
+    }, agentHeader(agentId));
+  }
+
+  resumeToolConfirmation(
+    agentId: string,
+    confirmation: ToolConfirmationView,
+    action: "CONFIRM" | "REJECT" | "MODIFY",
+    parameters?: Record<string, unknown>
+  ): Promise<ToolExecutionResult> {
+    return this.post<ToolExecutionResult>(
+      `/api/tools/confirmations/${encodeURIComponent(confirmation.confirmationId)}/resume`,
+      {
+        ...identityPayload(this.getIdentity()),
+        agentId,
+        sessionId: confirmation.sessionId,
+        action,
+        ...(parameters ? { parameters } : {}),
+        approvalId: stableToolActionId(action.toLowerCase(), confirmation),
+        reviewerId: this.getIdentity().userId,
+        idempotencyKey: stableIdempotencyKey(confirmation)
+      },
+      agentHeader(agentId)
+    );
   }
 
   listKnowledge() {
@@ -399,9 +427,10 @@ export class ApiClient {
     return this.request<T>(path);
   }
 
-  private post<T>(path: string, body: unknown) {
+  private post<T>(path: string, body: unknown, headers?: HeadersInit) {
     return this.request<T>(path, {
       method: "POST",
+      headers,
       body: JSON.stringify(body)
     });
   }
@@ -442,6 +471,10 @@ export class ApiClient {
 
 function stableIdempotencyKey(confirmation: ToolConfirmationView): string {
   return confirmation.idempotencyKey || stableToolActionId("idem", confirmation);
+}
+
+function agentHeader(agentId: string): HeadersInit {
+  return { "X-Agent-Id": agentId };
 }
 
 function stableToolActionId(prefix: string, confirmation: ToolConfirmationView): string {

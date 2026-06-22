@@ -172,6 +172,32 @@ class ChatServiceTest {
     }
 
     @Test
+    void streamPersistsToolResultEventsAsContentBlocks() {
+        ToolResultAgentRuntime runtime = new ToolResultAgentRuntime();
+        ChatService service = new ChatService(contextFactory, sessionStore, runtime, knowledgeService);
+
+        StepVerifier.create(service.stream(command("stream with tool")))
+                .expectNextCount(5)
+                .verifyComplete();
+
+        List<ChatMessage> messages = sessionStore.listMessages(runtime.requests.get(0).context());
+        assertThat(messages).hasSize(2);
+        ChatMessage assistant = messages.get(1);
+        assertThat(assistant.content()).isEqualTo("answer");
+        assertThat(assistant.contentBlocks()).hasSize(2);
+        assertThat(assistant.contentBlocks().get(0).type().name()).isEqualTo("TEXT");
+        assertThat(assistant.contentBlocks().get(1).type().name()).isEqualTo("TOOL_RESULT");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result =
+                (Map<String, Object>) assistant.contentBlocks().get(1).metadata().get("result");
+        assertThat(result)
+                .containsEntry("toolStatus", "result")
+                .containsEntry("rawReference", "workspace://artifacts/search/raw.json")
+                .containsEntry("text", "{\"matches\":2}");
+    }
+
+
+    @Test
     void compactsLongContextBeforeCallingRuntimeWithoutDeletingSessionHistory() {
         HarnessAgentProperties properties = new HarnessAgentProperties();
         HarnessAgentProperties.AgentDefinition agent = new HarnessAgentProperties.AgentDefinition();
@@ -684,6 +710,31 @@ class ChatServiceTest {
         public Flux<AgentRuntimeEvent> stream(AgentRunRequest request) {
             requests.add(request);
             return Flux.<AgentRuntimeEvent>never().doOnCancel(() -> cancelled.set(true));
+        }
+    }
+
+    private static class ToolResultAgentRuntime extends RecordingAgentRuntime {
+
+        @Override
+        public Flux<AgentRuntimeEvent> stream(AgentRunRequest request) {
+            requests.add(request);
+            return Flux.just(
+                    AgentRuntimeEvent.delta("answer"),
+                    AgentRuntimeEvent.tool("search.docs", java.util.Map.of(
+                            "toolStatus", "result_started",
+                            "toolCallId", "call-1",
+                            "toolName", "search.docs")),
+                    AgentRuntimeEvent.tool("{\"matches\":2}", java.util.Map.of(
+                            "toolStatus", "result_delta",
+                            "toolCallId", "call-1",
+                            "toolName", "search.docs")),
+                    AgentRuntimeEvent.tool("search.docs", java.util.Map.of(
+                            "toolStatus", "result",
+                            "toolCallId", "call-1",
+                            "toolName", "search.docs",
+                            "rawReference", "workspace://artifacts/search/raw.json",
+                            "resultState", "SUCCEEDED")),
+                    AgentRuntimeEvent.done("completed"));
         }
     }
 }

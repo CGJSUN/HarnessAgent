@@ -2,6 +2,8 @@ package com.harnessagent.tooling.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.harnessagent.chat.domain.ContentBlock;
+import com.harnessagent.chat.domain.ContentBlockType;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +27,9 @@ import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolAuditPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolExecutionStatus;
+import com.harnessagent.tooling.domain.ToolOutputSchema;
 import com.harnessagent.tooling.domain.ToolParameterSchema;
+import com.harnessagent.tooling.domain.ToolPendingConfirmation;
 import com.harnessagent.tooling.domain.ToolPermissionPolicy;
 import com.harnessagent.tooling.domain.ToolRegistration;
 import com.harnessagent.tooling.domain.ToolRiskLevel;
@@ -51,6 +55,29 @@ class ToolServiceTest {
         assertThat(tool.parameterSchema().requiredParameters()).containsExactly("customerId");
         assertThat(tool.permissionPolicy().allowedUserIds()).containsExactly("user-a");
         assertThat(tool.auditPolicy().enabled()).isTrue();
+    }
+
+    @Test
+    void registersToolWithOutputSchemaMetadata() {
+        ToolDefinition tool = service.registerTool(new ToolRegistration(
+                "tenant-a",
+                "report.generate",
+                "Generate a structured report.",
+                "Reports",
+                "owner-a",
+                ToolSourceType.PROTOCOL,
+                "protocol://reports/generate",
+                ToolRiskLevel.READ_ONLY,
+                false,
+                true,
+                schema(Set.of("reportId"), Set.of(), Map.of(), Set.of()),
+                ToolOutputSchema.structured("application/json", Map.of("type", "object", "format", "tool-result")),
+                permissionPolicy(),
+                ToolAuditPolicy.standard()));
+
+        assertThat(tool.sourceType()).isEqualTo(ToolSourceType.PROTOCOL);
+        assertThat(tool.outputSchema().outputType()).isEqualTo("application/json");
+        assertThat(tool.outputSchema().schema()).containsEntry("format", "tool-result");
     }
 
     @Test
@@ -122,8 +149,49 @@ class ToolServiceTest {
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.PENDING_CONFIRMATION);
         assertThat(result.approvalRequired()).isTrue();
         assertThat(executor.invocations).isZero();
+        assertThat(result.operationSummary()).containsKey("confirmationId");
+        assertThat(service.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a"))
+                .singleElement()
+                .satisfies(confirmation -> {
+                    assertThat(confirmation.confirmationId()).isEqualTo(result.operationSummary().get("confirmationId"));
+                    assertThat(confirmation.toolId()).isEqualTo(tool.id());
+                    assertThat(confirmation.operationSummary()).containsEntry("toolName", "ticket.update");
+                });
         assertThat(service.listAudit("tenant-a").get(0).status())
                 .isEqualTo(ToolExecutionStatus.PENDING_CONFIRMATION);
+    }
+
+    @Test
+    void rejectsWorkspacePathEscapingPersonalWorkspaceBeforeExecution() {
+        ToolDefinition tool = service.registerTool(new ToolRegistration(
+                "tenant-a",
+                "workspace.read",
+                "Read a file from the personal workspace.",
+                "Workspace",
+                "owner-a",
+                ToolSourceType.INTERNAL,
+                "workspace",
+                ToolRiskLevel.READ_ONLY,
+                false,
+                true,
+                new ToolParameterSchema(
+                        Set.of("workspacePath"),
+                        Set.of(),
+                        Map.of(),
+                        Set.of(),
+                        Set.of("workspacePath")),
+                permissionPolicy(),
+                ToolAuditPolicy.standard()));
+
+        ToolExecutionResult result = service.execute(command(
+                tool,
+                Map.of("workspacePath", "../secret.txt"),
+                false,
+                null));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.DENIED);
+        assertThat(result.message()).contains("workspace path");
+        assertThat(executor.invocations).isZero();
     }
 
     @Test
@@ -211,6 +279,112 @@ class ToolServiceTest {
         ToolAuditRecord audit = service.listAudit("tenant-a").get(1);
         assertThat(audit.approvalId()).isEqualTo("approval-1");
         assertThat(audit.reviewerId()).isEqualTo("reviewer-a");
+    }
+
+    @Test
+    void confirmedPendingToolCanResumeWithModifiedWhitelistedParameters() {
+        ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
+        ToolExecutionResult firstPending = service.execute(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "approved"),
+                false,
+                "idem-1"));
+
+        ToolExecutionResult result = service.execute(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "rejected"),
+                true,
+                "idem-1"));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.PENDING_CONFIRMATION);
+        assertThat(result.operationSummary()).containsEntry("modifiedParameters", true);
+        assertThat(result.operationSummary().get("confirmationId"))
+                .isNotEqualTo(firstPending.operationSummary().get("confirmationId"));
+        assertThat(service.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a")).hasSize(1);
+        assertThat(executor.invocations).isZero();
+    }
+
+    @Test
+    void resumeConfirmationUsesStoredIdempotencyKeyAndCannotBeReplayed() {
+        ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
+        ToolExecutionResult pending = service.execute(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "approved"),
+                false,
+                "idem-1"));
+        String confirmationId = String.valueOf(pending.operationSummary().get("confirmationId"));
+
+        ToolExecutionResult first = service.resumeConfirmation(
+                confirmationId,
+                com.harnessagent.tooling.domain.ToolConfirmationAction.CONFIRM,
+                new ToolExecutionCommand(
+                        "tenant-a",
+                        "user-a",
+                        "agent-a",
+                        "session-a",
+                        confirmationId,
+                        Map.of(),
+                        Set.of(),
+                        Set.of(),
+                        true,
+                        "approval-1",
+                        "reviewer-a",
+                        "evil-idem"));
+        ToolExecutionResult replay = service.resumeConfirmation(
+                confirmationId,
+                com.harnessagent.tooling.domain.ToolConfirmationAction.CONFIRM,
+                new ToolExecutionCommand(
+                        "tenant-a",
+                        "user-a",
+                        "agent-a",
+                        "session-a",
+                        confirmationId,
+                        Map.of(),
+                        Set.of(),
+                        Set.of(),
+                        true,
+                        "approval-2",
+                        "reviewer-b",
+                        "evil-idem-2"));
+
+        assertThat(first.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
+        assertThat(replay.status()).isEqualTo(ToolExecutionStatus.DENIED);
+        assertThat(replay.message()).contains("not active");
+        assertThat(executor.invocations).isEqualTo(1);
+        assertThat(service.listAudit("tenant-a").get(1).idempotencyKey()).isEqualTo("idem-1");
+    }
+
+    @Test
+    void resumeConfirmationCanRejectWithoutReplayingParameters() {
+        ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
+        ToolExecutionResult pending = service.execute(command(
+                tool,
+                Map.of("ticketId", "T-1", "status", "approved"),
+                false,
+                "idem-1"));
+        String confirmationId = String.valueOf(pending.operationSummary().get("confirmationId"));
+
+        ToolExecutionResult rejected = service.resumeConfirmation(
+                confirmationId,
+                com.harnessagent.tooling.domain.ToolConfirmationAction.REJECT,
+                new ToolExecutionCommand(
+                        "tenant-a",
+                        "user-a",
+                        "agent-a",
+                        "session-a",
+                        confirmationId,
+                        Map.of(),
+                        Set.of(),
+                        Set.of(),
+                        false,
+                        "approval-1",
+                        "reviewer-a",
+                        "ignored-idem"));
+
+        assertThat(rejected.status()).isEqualTo(ToolExecutionStatus.DENIED);
+        assertThat(rejected.message()).contains("rejected by user");
+        assertThat(service.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a")).isEmpty();
+        assertThat(executor.invocations).isZero();
     }
 
     @Test
@@ -311,6 +485,54 @@ class ToolServiceTest {
         ToolAuditRecord audit = service.listAudit("tenant-a").get(0);
         assertThat(audit.sourceType()).isEqualTo(ToolSourceType.MCP);
         assertThat(audit.toolName()).isEqualTo("mcp.finance.lookup");
+    }
+
+    @Test
+    void appliesSameGovernanceToProtocolBackedTools() {
+        ToolDefinition tool = service.registerTool(new ToolRegistration(
+                "tenant-a",
+                "protocol.calendar.lookup",
+                "Lookup calendar data through an approved protocol adapter.",
+                "Calendar Protocol",
+                "owner-a",
+                ToolSourceType.PROTOCOL,
+                "protocol://calendar/read",
+                ToolRiskLevel.READ_ONLY,
+                false,
+                true,
+                schema(Set.of("calendarId"), Set.of(), Map.of(), Set.of()),
+                permissionPolicy(),
+                ToolAuditPolicy.standard()));
+
+        ToolExecutionResult result = service.execute(command(
+                tool,
+                Map.of("calendarId", "cal-1"),
+                false,
+                null));
+
+        assertThat(result.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
+        assertThat(service.listAudit("tenant-a").get(0).sourceType()).isEqualTo(ToolSourceType.PROTOCOL);
+    }
+
+    @Test
+    void mapsToolExecutionResultToContentBlockWithSummaryAndRawReference() {
+        ToolExecutionResult result = ToolExecutionResult.success(
+                "tool-a",
+                Map.of(
+                        "summary", "generated",
+                        "rawReference", "workspace://artifacts/tool-a/raw.json",
+                        "rows", List.of(Map.of("id", "R-1"))));
+
+        ContentBlock block = ToolResultContentMapper.toContentBlock("report.generate", result);
+
+        assertThat(block.type()).isEqualTo(ContentBlockType.TOOL_RESULT);
+        assertThat(block.metadata()).containsEntry("toolName", "report.generate");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> structured = (Map<String, Object>) block.metadata().get("result");
+        assertThat(structured)
+                .containsEntry("status", ToolExecutionStatus.SUCCEEDED.name())
+                .containsEntry("rawReference", "workspace://artifacts/tool-a/raw.json");
+        assertThat(structured).containsKey("output");
     }
 
     @Test

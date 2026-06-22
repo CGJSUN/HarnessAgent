@@ -32,8 +32,10 @@ import com.harnessagent.workspace.application.ContextCompactionService;
 import java.util.ArrayList;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -43,6 +45,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import com.harnessagent.chat.domain.ChatCommand;
 import com.harnessagent.chat.domain.ChatResult;
+import com.harnessagent.chat.domain.ContentBlock;
 
 @Service
 public class ChatService {
@@ -250,11 +253,16 @@ public class ChatService {
 
         List<ChatMessage> messages = messagesForRuntime(context, messagesForAgent(context, effective, knowledge));
         StringBuilder assistantContent = new StringBuilder();
+        List<ContentBlock> assistantBlocks = new ArrayList<>();
+        Map<String, ToolResultAccumulator> toolResults = new LinkedHashMap<>();
         recoveryService.markPending(context, "stream", userMessage.id());
         return agentRuntime.stream(new AgentRunRequest(context, messages))
                 .doOnNext(event -> {
                     if (event.type() == AgentRuntimeEventType.DELTA) {
                         assistantContent.append(event.content());
+                    }
+                    if (event.type() == AgentRuntimeEventType.TOOL) {
+                        toolResultBlock(event, toolResults).ifPresent(assistantBlocks::add);
                     }
                 })
                 .map(event -> {
@@ -268,9 +276,13 @@ public class ChatService {
                     return event;
                 })
                 .doOnComplete(() -> {
-                    if (!assistantContent.isEmpty()) {
-                        sessionStore.appendMessage(
-                                context, ChatMessage.assistant(assistantContent.toString()));
+                    if (!assistantContent.isEmpty() || !assistantBlocks.isEmpty()) {
+                        List<ContentBlock> contentBlocks = new ArrayList<>();
+                        if (!assistantContent.isEmpty()) {
+                            contentBlocks.add(ContentBlock.text(assistantContent.toString()));
+                        }
+                        contentBlocks.addAll(assistantBlocks);
+                        sessionStore.appendMessage(context, ChatMessage.assistant(contentBlocks));
                     }
                 })
                 .doOnComplete(() -> recordChatTelemetry(effective, startedAt, "succeeded"))
@@ -285,6 +297,94 @@ public class ChatService {
                     recordChatTelemetry(effective, startedAt, "failed");
                 })
                 .doFinally(ignored -> recoveryService.clearPending(context));
+    }
+
+    private static Optional<ContentBlock> toolResultBlock(
+            AgentRuntimeEvent event,
+            Map<String, ToolResultAccumulator> toolResults) {
+        String status = stringAttribute(event.attributes(), "toolStatus");
+        String toolName = firstNonBlank(
+                stringAttribute(event.attributes(), "toolName"),
+                event.content(),
+                "tool");
+        String toolCallId = firstNonBlank(stringAttribute(event.attributes(), "toolCallId"), toolName);
+        ToolResultAccumulator accumulator = toolResults.computeIfAbsent(
+                toolCallId,
+                ignored -> new ToolResultAccumulator(toolName));
+        accumulator.merge(event.attributes());
+        if ("result_delta".equals(status)) {
+            accumulator.appendText(event.content());
+            return Optional.empty();
+        }
+        if ("result_data_delta".equals(status)) {
+            accumulator.addData(event.content(), event.attributes());
+            return Optional.empty();
+        }
+        if ("result_started".equals(status)) {
+            return Optional.empty();
+        }
+        if (!"result".equals(status)) {
+            return Optional.empty();
+        }
+        Map<String, Object> result = accumulator.result(event.content(), event.attributes());
+        toolResults.remove(toolCallId);
+        return Optional.of(ContentBlock.toolResult(toolName, result));
+    }
+
+    private static String stringAttribute(Map<String, Object> attributes, String key) {
+        Object value = attributes.get(key);
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static final class ToolResultAccumulator {
+
+        private final String toolName;
+        private final StringBuilder text = new StringBuilder();
+        private final List<Object> data = new ArrayList<>();
+        private final Map<String, Object> attributes = new LinkedHashMap<>();
+
+        private ToolResultAccumulator(String toolName) {
+            this.toolName = toolName;
+        }
+
+        private void merge(Map<String, Object> nextAttributes) {
+            if (nextAttributes == null || nextAttributes.isEmpty()) {
+                return;
+            }
+            attributes.putAll(nextAttributes);
+        }
+
+        private void appendText(String delta) {
+            if (delta != null && !delta.isBlank()) {
+                text.append(delta);
+            }
+        }
+
+        private void addData(String content, Map<String, Object> nextAttributes) {
+            if (nextAttributes != null && nextAttributes.containsKey("data")) {
+                data.add(nextAttributes.get("data"));
+            } else if (content != null && !content.isBlank()) {
+                data.add(content);
+            }
+        }
+
+        private Map<String, Object> result(String finalContent, Map<String, Object> finalAttributes) {
+            Map<String, Object> result = new LinkedHashMap<>(attributes);
+            if (finalAttributes != null) {
+                result.putAll(finalAttributes);
+            }
+            result.putIfAbsent("toolName", toolName);
+            if (!text.isEmpty()) {
+                result.put("text", text.toString());
+            }
+            if (!data.isEmpty()) {
+                result.put("data", List.copyOf(data));
+            }
+            if (finalContent != null && !finalContent.isBlank() && !finalContent.equals(toolName)) {
+                result.put("content", finalContent);
+            }
+            return Map.copyOf(result);
+        }
     }
 
     private ChatResult persistAssistantMessage(

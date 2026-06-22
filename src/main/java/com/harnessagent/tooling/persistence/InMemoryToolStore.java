@@ -11,6 +11,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
+import com.harnessagent.tooling.domain.ToolPendingConfirmation;
+import com.harnessagent.tooling.domain.ToolPendingConfirmationStatus;
 import com.harnessagent.tooling.execution.ToolExecutionResult;
 
 @Component
@@ -20,6 +22,7 @@ public class InMemoryToolStore implements ToolStore {
     private final Map<String, ToolDefinition> tools = new ConcurrentHashMap<>();
     private final List<ToolAuditRecord> auditRecords = new CopyOnWriteArrayList<>();
     private final Map<String, ToolIdempotencyRecord> idempotentResults = new ConcurrentHashMap<>();
+    private final Map<String, ToolPendingConfirmation> pendingConfirmations = new ConcurrentHashMap<>();
 
     @Override
     public ToolDefinition saveTool(ToolDefinition definition) {
@@ -76,5 +79,51 @@ public class InMemoryToolStore implements ToolStore {
             idempotentResults.put(idempotencyKey,
                     new ToolIdempotencyRecord(idempotencyKey, parameterFingerprint, result));
         }
+    }
+
+    @Override
+    public ToolPendingConfirmation savePendingConfirmation(ToolPendingConfirmation confirmation) {
+        pendingConfirmations.put(confirmation.confirmationId(), confirmation);
+        return confirmation;
+    }
+
+    @Override
+    public Optional<ToolPendingConfirmation> findPendingConfirmation(String confirmationId) {
+        if (confirmationId == null || confirmationId.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(pendingConfirmations.get(confirmationId.trim()));
+    }
+
+    @Override
+    public boolean claimPendingConfirmation(String confirmationId, String decisionReason) {
+        if (confirmationId == null || confirmationId.isBlank()) {
+            return false;
+        }
+        java.util.concurrent.atomic.AtomicBoolean claimed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        pendingConfirmations.computeIfPresent(confirmationId.trim(), (ignored, pending) -> {
+            if (pending.status() != ToolPendingConfirmationStatus.PENDING) {
+                return pending;
+            }
+            claimed.set(true);
+            return pending.confirmed(decisionReason == null ? "confirmed" : decisionReason);
+        });
+        return claimed.get();
+    }
+
+    @Override
+    public List<ToolPendingConfirmation> listPendingConfirmations(
+            String tenantId,
+            String userId,
+            String agentId,
+            String sessionId) {
+        return pendingConfirmations.values().stream()
+                .filter(confirmation -> confirmation.status() == ToolPendingConfirmationStatus.PENDING)
+                .filter(confirmation -> confirmation.tenantId().equals(tenantId))
+                .filter(confirmation -> confirmation.userId().equals(userId))
+                .filter(confirmation -> confirmation.agentId().equals(agentId))
+                .filter(confirmation -> confirmation.sessionId().equals(sessionId))
+                .sorted(Comparator.comparing(ToolPendingConfirmation::createdAt))
+                .toList();
     }
 }

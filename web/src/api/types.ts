@@ -121,9 +121,12 @@ export interface ToolStatusView {
 }
 
 export interface ToolConfirmationView {
+  confirmationId: string;
   toolId: string;
   toolName: string;
   sessionId: string;
+  riskLevel?: string;
+  status?: string;
   sanitizedInput: Record<string, unknown>;
   operationSummary?: Record<string, unknown>;
   idempotencyKey?: string;
@@ -163,14 +166,16 @@ export interface ToolDefinition {
   description: string;
   ownerSystem: string;
   ownerId: string;
-  sourceType: "INTERNAL" | "MCP" | "AGENT" | string;
+  sourceType: "INTERNAL" | "MCP" | "AGENT" | "PROTOCOL" | string;
   sourceRef: string;
   riskLevel: "READ_ONLY" | "HIGH_RISK" | string;
   mutating: boolean;
   enabled: boolean;
   parameterSchema: ToolParameterSchema;
+  outputSchema: ToolOutputSchema;
   permissionPolicy: ToolPermissionPolicy;
   auditPolicy: ToolAuditPolicy;
+  workloadType: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -180,6 +185,12 @@ export interface ToolParameterSchema {
   optionalParameters: string[];
   allowedValues: Record<string, string[]>;
   sensitiveParameters: string[];
+  workspacePathParameters: string[];
+}
+
+export interface ToolOutputSchema {
+  outputType: string;
+  schema: Record<string, unknown>;
 }
 
 export interface ToolPermissionPolicy {

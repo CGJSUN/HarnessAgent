@@ -107,6 +107,7 @@ public final class JdbcStoreTestSupport {
                     mutating boolean not null,
                     enabled boolean not null,
                     parameter_schema_json clob not null,
+                    output_schema_json clob not null,
                     permission_policy_json clob not null,
                     audit_policy_json clob not null,
                     workload_type varchar(32) not null,
@@ -145,6 +146,34 @@ public final class JdbcStoreTestSupport {
                     result_json clob not null,
                     created_at timestamp not null
                 )
+                """);
+        jdbc.execute("""
+                create table ha_tool_pending_confirmations (
+                    confirmation_id varchar(128) primary key,
+                    tenant_id varchar(128) not null,
+                    user_id varchar(128) not null,
+                    agent_id varchar(128) not null,
+                    session_id varchar(128) not null,
+                    tool_id varchar(128) not null,
+                    tool_name varchar(256) not null,
+                    source_type varchar(32) not null,
+                    risk_level varchar(32) not null,
+                    status varchar(64) not null,
+                    parameters_json clob not null,
+                    sanitized_input_json clob not null,
+                    operation_summary_json clob not null,
+                    parameter_fingerprint clob not null,
+                    idempotency_key varchar(256) not null,
+                    created_at timestamp not null,
+                    updated_at timestamp not null,
+                    expires_at timestamp not null,
+                    decided_at timestamp,
+                    decision_reason clob not null
+                )
+                """);
+        jdbc.execute("""
+                create index idx_ha_tool_pending_session
+                on ha_tool_pending_confirmations(tenant_id, user_id, agent_id, session_id, status, created_at)
                 """);
     }
 

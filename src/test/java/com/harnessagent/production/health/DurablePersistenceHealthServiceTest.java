@@ -120,7 +120,10 @@ class DurablePersistenceHealthServiceTest {
                 .setType(EmbeddedDatabaseType.H2)
                 .generateUniqueName(true)
                 .addScript("classpath:db/migration/V1__durable_persistence.sql")
+                .addScript("classpath:db/migration/V3__session_message_content_blocks.sql")
+                .addScript("classpath:db/migration/V5__tool_workload_type.sql")
                 .addScript("classpath:db/migration/V7__personal_memory_rag_metadata.sql")
+                .addScript("classpath:db/migration/V9__personal_tooling_hitl.sql")
                 .build();
     }
 

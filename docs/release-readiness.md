@@ -126,10 +126,10 @@ curl -s http://localhost:8080/api/release/phase-gates
 DB schema and metadata comment migration 验收：
 
 - Flyway locations 必须包含 `classpath:db/migration,classpath:db/vendor-migration/{vendor}`。
-- H2 路径由 `DurablePersistenceMigrationTest` 覆盖，确认公共 V1/V3/V5/V7 与 H2 V2/V4/V6/V8 可执行，并能读取 15 张表和 147 个字段 comments。
-- MySQL 发布前需在目标 schema 执行 [durable-persistence-schema.md](durable-persistence-schema.md) 中的 `information_schema.tables` / `information_schema.columns` 查询，确认 15 张表均有 `table_comment`，且字段 comment 缺失查询无返回。
+- H2 路径由 `DurablePersistenceMigrationTest` 覆盖，确认公共 V1/V3/V5/V7/V9 与 H2 V2/V4/V6/V8/V10 可执行，并能读取 16 张表和 168 个字段 comments。
+- MySQL 发布前需在目标 schema 执行 [durable-persistence-schema.md](durable-persistence-schema.md) 中的 `information_schema.tables` / `information_schema.columns` 查询，确认 16 张表均有 `table_comment`，且字段 comment 缺失查询无返回。
 - MySQL vendor comment migration 使用 `MODIFY COLUMN ... COMMENT`，发布前需由 DBA 或 schema owner 审核字段类型、NULL 约束和 `AUTO_INCREMENT` 语义未被改变。
-- V2/V4/V6/V8 只增加 metadata comments。回滚优先 roll-forward 到后续 vendor comment migration；除非已有数据库备份和停写窗口，不通过删除 durable 表、回退 V1/V3/V5/V7 DDL 来处理 comment 文案问题。
+- V2/V4/V6/V8/V10 只增加 metadata comments。回滚优先 roll-forward 到后续 vendor comment migration；除非已有数据库备份和停写窗口，不通过删除 durable 表、回退 V1/V3/V5/V7/V9 DDL 来处理 comment 文案问题。
 
 生产 profile 必填配置：
 
@@ -157,5 +157,5 @@ DB schema and metadata comment migration 验收：
 
 - 回滚服务版本前先停止新版本写流量，避免同一 schema 同时被两套模型写入。
 - 回滚配置时优先切回上一版 `application-production.yml` 或环境变量。
-- 不删除 `ha_security_audit`、`ha_personal_memories`、`ha_knowledge_sources`、`ha_knowledge_chunks`、`ha_tool_audit_records`、`ha_tool_idempotency_records`、`ha_telemetry_events`、`ha_snapshot_metadata` 和 `ha_snapshot_content`。
+- 不删除 `ha_security_audit`、`ha_personal_memories`、`ha_knowledge_sources`、`ha_knowledge_chunks`、`ha_tool_audit_records`、`ha_tool_idempotency_records`、`ha_tool_pending_confirmations`、`ha_telemetry_events`、`ha_snapshot_metadata` 和 `ha_snapshot_content`。
 - 如果必须恢复数据库备份，先验证备份同时包含 session、AgentScope state、snapshot 和 idempotency 表。

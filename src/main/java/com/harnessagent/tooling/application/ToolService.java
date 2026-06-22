@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -45,6 +44,9 @@ import reactor.core.publisher.Mono;
 import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolExecutionStatus;
+import com.harnessagent.tooling.domain.ToolConfirmationAction;
+import com.harnessagent.tooling.domain.ToolPendingConfirmation;
+import com.harnessagent.tooling.domain.ToolPendingConfirmationStatus;
 import com.harnessagent.tooling.domain.ToolRegistration;
 import com.harnessagent.tooling.domain.ToolRiskLevel;
 import com.harnessagent.tooling.domain.ToolSourceType;
@@ -72,7 +74,6 @@ public class ToolService {
     private final SandboxExecutionPolicyService sandboxPolicyService;
     private final SandboxExecutorRegistry sandboxExecutorRegistry;
     private final PersonalWorkspaceService personalWorkspaceService;
-    private final Map<String, String> pendingConfirmations = new ConcurrentHashMap<>();
 
     public ToolService(ToolStore store, List<ToolExecutor> executors) {
         this(store,
@@ -147,6 +148,7 @@ public class ToolService {
                 registration.mutating(),
                 registration.enabled(),
                 registration.parameterSchema(),
+                registration.outputSchema(),
                 registration.permissionPolicy(),
                 registration.auditPolicy(),
                 registration.workloadType(),
@@ -272,15 +274,17 @@ public class ToolService {
             }
         }
         if (sandboxWorkload.isPresent() && !approvalRequested(effectiveCommand)) {
-            markPendingConfirmation(effectiveCommand, tool, parameterFingerprint);
-            ToolExecutionResult result = ToolExecutionResult.pending(
-                    tool.id(),
+            ToolPendingConfirmation pending = markPendingConfirmation(
+                    effectiveCommand,
+                    tool,
+                    parameterFingerprint,
                     Map.of(
                             "toolName", tool.name(),
                             "riskLevel", tool.riskLevel().name(),
                             "sandboxRequired", true,
                             "workloadType", sandboxWorkload.get().name(),
                             "parameters", sanitizeInput(tool, effectiveCommand.parameters())));
+            ToolExecutionResult result = ToolExecutionResult.pending(tool.id(), pending.operationSummary());
             log.info(
                     "tool sandbox pending tenantId={} agentId={} toolId={} workloadType={} userHash={} sessionHash={} idempotencyHash={}",
                     effectiveCommand.tenantId(),
@@ -305,13 +309,15 @@ public class ToolService {
         }
         if (tool.riskLevel() == ToolRiskLevel.HIGH_RISK && !approvalRequested(effectiveCommand)) {
             // High-risk operations stop here until confirmed; idempotency and execution are intentionally later.
-            markPendingConfirmation(effectiveCommand, tool, parameterFingerprint);
-            ToolExecutionResult result = ToolExecutionResult.pending(
-                    tool.id(),
+            ToolPendingConfirmation pending = markPendingConfirmation(
+                    effectiveCommand,
+                    tool,
+                    parameterFingerprint,
                     Map.of(
                             "toolName", tool.name(),
                             "riskLevel", tool.riskLevel().name(),
                             "parameters", sanitizeInput(tool, effectiveCommand.parameters())));
+            ToolExecutionResult result = ToolExecutionResult.pending(tool.id(), pending.operationSummary());
             log.info(
                     "tool high_risk pending tenantId={} agentId={} toolId={} userHash={} sessionHash={} idempotencyHash={}",
                     effectiveCommand.tenantId(),
@@ -398,14 +404,73 @@ public class ToolService {
         if (rejected == null) {
             rejected = ToolExecutionResult.denied(tool.id(), "High-risk tool operation rejected by user.");
         }
-        pendingConfirmations.remove(pendingConfirmationKey(command, tool));
+        String rejectionReason = rejected.message();
+        latestPendingConfirmation(command, tool)
+                .ifPresent(pending -> store.savePendingConfirmation(pending.rejected(rejectionReason)));
         audit(command, tool, rejected, startedAt, rejected.message());
         recordToolTelemetry(command, tool.name(), rejected, startedAt);
         return rejected;
     }
 
+    public ToolExecutionResult resumeConfirmation(
+            String confirmationId,
+            ToolConfirmationAction action,
+            ToolExecutionCommand request) {
+        Optional<ToolPendingConfirmation> foundPending = store.findPendingConfirmation(confirmationId);
+        if (foundPending.isEmpty()) {
+            return ToolExecutionResult.denied("", "No matching pending confirmation for this tool call.");
+        }
+        ToolPendingConfirmation pending = foundPending.get();
+        if (pending.status() != ToolPendingConfirmationStatus.PENDING) {
+            return ToolExecutionResult.denied(pending.toolId(), "Pending confirmation is not active.");
+        }
+        if (!matchesPendingContext(pending, request)) {
+            return ToolExecutionResult.denied(pending.toolId(), "Pending confirmation does not match this caller context.");
+        }
+        Optional<ToolDefinition> foundTool = store.findTool(pending.toolId());
+        if (foundTool.isEmpty()) {
+            return ToolExecutionResult.denied(pending.toolId(), "Unknown tool.");
+        }
+        ToolConfirmationAction effectiveAction = action == null ? ToolConfirmationAction.CONFIRM : action;
+        Map<String, Object> parameters = request.parameters() == null || request.parameters().isEmpty()
+                ? pending.parameters()
+                : request.parameters();
+        ToolExecutionCommand command = new ToolExecutionCommand(
+                pending.tenantId(),
+                pending.userId(),
+                pending.agentId(),
+                pending.sessionId(),
+                pending.toolId(),
+                parameters,
+                request.departments(),
+                request.roles(),
+                true,
+                request.approvalId(),
+                request.reviewerId(),
+                pending.idempotencyKey());
+        if (effectiveAction == ToolConfirmationAction.REJECT) {
+            return reject(command);
+        }
+        return execute(command);
+    }
+
     public List<ToolAuditRecord> listAudit(String tenantId) {
         return store.listAudit(tenantId);
+    }
+
+    public List<ToolPendingConfirmation> listPendingConfirmations(
+            String tenantId,
+            String userId,
+            String agentId,
+            String sessionId) {
+        return store.listPendingConfirmations(tenantId, userId, agentId, sessionId);
+    }
+
+    private static boolean matchesPendingContext(ToolPendingConfirmation pending, ToolExecutionCommand request) {
+        return pending.tenantId().equals(request.tenantId())
+                && pending.userId().equals(request.userId())
+                && pending.agentId().equals(request.agentId())
+                && pending.sessionId().equals(request.sessionId());
     }
 
     private ToolExecutionResult preflight(ToolExecutionCommand command, ToolDefinition tool) {
@@ -428,10 +493,75 @@ public class ToolService {
         if (!toolSafety.allowed()) {
             return ToolExecutionResult.denied(tool.id(), toolSafety.reason());
         }
+        Optional<String> workspacePathError = validateWorkspacePaths(command, tool);
+        if (workspacePathError.isPresent()) {
+            return ToolExecutionResult.denied(tool.id(), workspacePathError.get());
+        }
         if (tool.mutating() && command.idempotencyKey() == null) {
             return ToolExecutionResult.denied(tool.id(), "Idempotency key is required for mutating tools.");
         }
         return null;
+    }
+
+    private Optional<String> validateWorkspacePaths(ToolExecutionCommand command, ToolDefinition tool) {
+        java.util.LinkedHashSet<String> pathParameters =
+                new java.util.LinkedHashSet<>(tool.parameterSchema().workspacePathParameters());
+        tool.parameterSchema().allowedParameters().stream()
+                .filter(ToolService::looksLikeWorkspacePathParameter)
+                .forEach(pathParameters::add);
+        if (pathParameters.isEmpty()) {
+            return Optional.empty();
+        }
+        RuntimeContextScope context = new RuntimeContextScope(
+                command.tenantId(),
+                command.userId(),
+                command.agentId(),
+                command.sessionId(),
+                command.userId(),
+                command.sessionId());
+        for (String parameter : pathParameters) {
+            Object value = command.parameters().get(parameter);
+            Optional<String> error = validateWorkspacePathValue(context, value);
+            if (error.isPresent()) {
+                return error;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<String> validateWorkspacePathValue(RuntimeContextScope context, Object value) {
+        if (value == null) {
+            return Optional.empty();
+        }
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                Optional<String> error = validateWorkspacePathValue(context, item);
+                if (error.isPresent()) {
+                    return error;
+                }
+            }
+            return Optional.empty();
+        }
+        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            personalWorkspaceService.resolveAuthorizedPath(context, stringValue);
+            return Optional.empty();
+        } catch (IllegalArgumentException ex) {
+            return Optional.of(ex.getMessage());
+        }
+    }
+
+    private static boolean looksLikeWorkspacePathParameter(String name) {
+        if (name == null) {
+            return false;
+        }
+        String normalized = name.toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("path")
+                || normalized.endsWith("path")
+                || normalized.equals("workspaceuri")
+                || normalized.equals("workspace_uri");
     }
 
     private ToolExecutionResult planModeRejection(ToolExecutionCommand command, ToolDefinition tool) {
@@ -606,23 +736,52 @@ public class ToolService {
         if (!approvalRequested(command)) {
             return null;
         }
-        String key = pendingConfirmationKey(command, tool);
-        String pendingFingerprint = pendingConfirmations.get(key);
-        if (pendingFingerprint == null) {
+        Optional<ToolPendingConfirmation> pending = latestPendingConfirmation(command, tool);
+        if (pending.isEmpty()) {
             return ToolExecutionResult.denied(tool.id(), "No matching pending confirmation for this tool call.");
         }
-        if (!pendingFingerprint.equals(parameterFingerprint)) {
-            return ToolExecutionResult.denied(tool.id(), "Pending confirmation parameters do not match this tool call.");
+        if (!pending.get().parameterFingerprint().equals(parameterFingerprint)) {
+            store.savePendingConfirmation(pending.get().rejected("superseded by modified parameters"));
+            ToolPendingConfirmation modified = markPendingConfirmation(
+                    command,
+                    tool,
+                    parameterFingerprint,
+                    Map.of(
+                            "toolName", tool.name(),
+                            "riskLevel", tool.riskLevel().name(),
+                            "modifiedParameters", true,
+                            "previousConfirmationId", pending.get().confirmationId(),
+                            "parameters", sanitizeInput(tool, command.parameters())));
+            return ToolExecutionResult.pending(tool.id(), modified.operationSummary());
         }
-        pendingConfirmations.remove(key);
+        boolean claimed = store.claimPendingConfirmation(pending.get().confirmationId(), "confirmed");
+        if (!claimed) {
+            return ToolExecutionResult.denied(tool.id(), "Pending confirmation is not active.");
+        }
         return null;
     }
 
-    private void markPendingConfirmation(
+    private ToolPendingConfirmation markPendingConfirmation(
             ToolExecutionCommand command,
             ToolDefinition tool,
-            String parameterFingerprint) {
-        pendingConfirmations.put(pendingConfirmationKey(command, tool), parameterFingerprint);
+            String parameterFingerprint,
+            Map<String, Object> operationSummary) {
+        ToolPendingConfirmation pending = ToolPendingConfirmation.pending(
+                command.tenantId(),
+                command.userId(),
+                command.agentId(),
+                command.sessionId(),
+                tool,
+                command.parameters(),
+                sanitizeInput(tool, command.parameters()),
+                operationSummary,
+                parameterFingerprint,
+                command.idempotencyKey());
+        Map<String, Object> summary = new LinkedHashMap<>(operationSummary);
+        summary.put("confirmationId", pending.confirmationId());
+        summary.put("status", ToolPendingConfirmationStatus.PENDING.name());
+        ToolPendingConfirmation withSummary = pending.withOperationSummary(summary);
+        return store.savePendingConfirmation(withSummary);
     }
 
     private static boolean approvalRequested(ToolExecutionCommand command) {
@@ -630,19 +789,26 @@ public class ToolService {
                 || (command.approvalId() != null && command.reviewerId() != null);
     }
 
-    private static String pendingConfirmationKey(ToolExecutionCommand command, ToolDefinition tool) {
-        return command.tenantId()
-                + ":" + command.userId()
-                + ":" + command.agentId()
-                + ":" + command.sessionId()
-                + ":" + tool.id();
+    private Optional<ToolPendingConfirmation> latestPendingConfirmation(ToolExecutionCommand command, ToolDefinition tool) {
+        return store.listPendingConfirmations(
+                        command.tenantId(),
+                        command.userId(),
+                        command.agentId(),
+                        command.sessionId()).stream()
+                .filter(pending -> pending.toolId().equals(tool.id()))
+                .reduce((first, second) -> second);
     }
 
     private String idempotencyKey(ToolDefinition tool, ToolExecutionCommand command) {
         if (!tool.mutating()) {
             return null;
         }
-        return command.tenantId() + ":" + tool.id() + ":" + command.idempotencyKey();
+        return command.tenantId()
+                + ":" + command.userId()
+                + ":" + command.agentId()
+                + ":" + command.sessionId()
+                + ":" + tool.id()
+                + ":" + command.idempotencyKey();
     }
 
     private void auditUnknown(ToolExecutionCommand command, ToolExecutionResult result, Instant startedAt) {

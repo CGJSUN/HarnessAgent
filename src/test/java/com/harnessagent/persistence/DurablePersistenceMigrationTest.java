@@ -28,6 +28,7 @@ class DurablePersistenceMigrationTest {
             "ha_tool_definitions",
             "ha_tool_audit_records",
             "ha_tool_idempotency_records",
+            "ha_tool_pending_confirmations",
             "ha_telemetry_events");
 
     @Test
@@ -47,11 +48,16 @@ class DurablePersistenceMigrationTest {
             int tableComments = 0;
             int columnComments = 0;
             boolean sessionContentBlocksColumn = false;
+            boolean toolOutputSchemaColumn = false;
+            boolean toolPendingConfirmationsTable = false;
             for (String table : TABLES) {
                 try (ResultSet tables = metadata.getTables(null, "PUBLIC", table, new String[] {"TABLE"})) {
                     assertThat(tables.next())
                             .as("table exists: %s", table)
                             .isTrue();
+                    if ("ha_tool_pending_confirmations".equals(table)) {
+                        toolPendingConfirmationsTable = true;
+                    }
                     if (hasText(tables.getString("REMARKS"))) {
                         tableComments++;
                     }
@@ -63,6 +69,11 @@ class DurablePersistenceMigrationTest {
                             sessionContentBlocksColumn = true;
                             assertThat(columns.getString("REMARKS")).contains("Structured content blocks");
                         }
+                        if ("ha_tool_definitions".equals(table)
+                                && "output_schema_json".equals(columns.getString("COLUMN_NAME"))) {
+                            toolOutputSchemaColumn = true;
+                            assertThat(columns.getString("REMARKS")).contains("output schema");
+                        }
                         if (hasText(columns.getString("REMARKS"))) {
                             columnComments++;
                         }
@@ -70,9 +81,11 @@ class DurablePersistenceMigrationTest {
                 }
             }
 
-            assertThat(tableComments).isEqualTo(15);
-            assertThat(columnComments).isEqualTo(147);
+            assertThat(tableComments).isEqualTo(16);
+            assertThat(columnComments).isEqualTo(168);
             assertThat(sessionContentBlocksColumn).isTrue();
+            assertThat(toolOutputSchemaColumn).isTrue();
+            assertThat(toolPendingConfirmationsTable).isTrue();
         }
     }
 

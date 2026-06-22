@@ -50,6 +50,7 @@ public class DurablePersistenceHealthService {
             "ha_tool_definitions",
             "ha_tool_audit_records",
             "ha_tool_idempotency_records",
+            "ha_tool_pending_confirmations",
             "ha_telemetry_events");
 
     private static final Map<String, List<String>> REQUIRED_COLUMNS = Map.of(
@@ -67,7 +68,22 @@ public class DurablePersistenceHealthService {
                     "title",
                     "content",
                     "status",
-                    "source_id"));
+                    "source_id"),
+            "ha_tool_definitions",
+            List.of("workload_type", "output_schema_json"),
+            "ha_tool_pending_confirmations",
+            List.of(
+                    "confirmation_id",
+                    "tenant_id",
+                    "user_id",
+                    "agent_id",
+                    "session_id",
+                    "tool_id",
+                    "status",
+                    "parameters_json",
+                    "sanitized_input_json",
+                    "operation_summary_json",
+                    "parameter_fingerprint"));
 
     private final ProductionRuntimeProperties properties;
     private final DataSource dataSource;

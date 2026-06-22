@@ -1,6 +1,6 @@
 # Durable Persistence Schema
 
-This document describes the durable persistence schema created by `V1__durable_persistence.sql` and incremental schema migrations such as `V3__session_message_content_blocks.sql` and `V7__personal_memory_rag_metadata.sql`. Vendor-specific comment migrations document the schema with V2 baseline comments and later V4/V8 column comments.
+This document describes the durable persistence schema created by `V1__durable_persistence.sql` and incremental schema migrations such as `V3__session_message_content_blocks.sql`, `V7__personal_memory_rag_metadata.sql`, and `V9__personal_tooling_hitl.sql`. Vendor-specific comment migrations document the schema with V2 baseline comments and later V4/V8/V10 column comments.
 
 ## Personal Edition Interpretation
 
@@ -15,8 +15,9 @@ Flyway locations:
 - H2 comments: `src/main/resources/db/vendor-migration/h2/V2__durable_persistence_comments.sql`, `src/main/resources/db/vendor-migration/h2/V4__session_message_content_blocks_comments.sql`
 - MySQL comments: `src/main/resources/db/vendor-migration/mysql/V2__durable_persistence_comments.sql`, `src/main/resources/db/vendor-migration/mysql/V4__session_message_content_blocks_comments.sql`
 - Personal Memory/RAG comments: `src/main/resources/db/vendor-migration/{h2,mysql}/V8__personal_memory_rag_metadata_comments.sql`
+- Personal Tooling/HITL comments: `src/main/resources/db/vendor-migration/{h2,mysql}/V10__personal_tooling_hitl_comments.sql`
 
-The V2, V4, V6, and V8 scripts add metadata only. They must not store prompt text, retrieval evidence, tool payloads, DSNs, Redis URIs, snapshot payloads, or workspace file data in comments.
+The V2, V4, V6, V8, and V10 scripts add metadata only. They must not store prompt text, retrieval evidence, tool payloads, DSNs, Redis URIs, snapshot payloads, or workspace file data in comments.
 
 ## Table Dictionary
 
@@ -36,6 +37,7 @@ The V2, V4, V6, and V8 scripts add metadata only. They must not store prompt tex
 | `ha_tool_definitions` | Governed tool registry. | `tenant_id`, `name`, `owner_system`, `owner_id` |
 | `ha_tool_audit_records` | Tool execution audit records. | `tenant_id`, `user_id`, `tool_id`, `occurred_at` |
 | `ha_tool_idempotency_records` | Idempotency records for mutating tool execution. | `idempotency_key` |
+| `ha_tool_pending_confirmations` | Durable human-in-the-loop pause points for personal tool calls. | `tenant_id`, `user_id`, `agent_id`, `session_id`, `status`, `created_at` |
 | `ha_telemetry_events` | Runtime telemetry events. | `tenant_id`, `user_id`, `agent_id`, `occurred_at` |
 
 Personal edition mapping:
@@ -64,9 +66,10 @@ Personal edition mapping:
 | `ha_personal_memories` | `id`: memory id; `tenant_id`: compatibility tenant isolation key; `owner_id`: personal owner id; `agent_id`: personal Agent id; `session_id`: session where the write was requested; `layer_name`: memory layer; `title`: write summary; `content`: memory content projected to RAG only after confirmation; `status`: write lifecycle status; `source_id`: linked knowledge source id when confirmed; `created_at`: creation timestamp; `updated_at`: update timestamp. |
 | `ha_rag_metrics` | `id`: metric id; `tenant_id`: tenant isolation key; `user_id`: retrieval user; `query_text`: original retrieval query for governed analytics; `hit`: whether accessible evidence was found; `candidate_count`: candidate chunks before permission filtering; `permitted_count`: chunks after permission filtering; `failure_reason`: no-answer or retrieval failure code; `created_at`: metric timestamp. |
 | `ha_rag_feedback` | `id`: feedback id; `tenant_id`: tenant isolation key; `user_id`: feedback user; `query_text`: retrieval query associated with feedback; `helpful`: helpful marker; `comment_text`: optional feedback comment; `created_at`: feedback timestamp. |
-| `ha_tool_definitions` | `id`: tool id; `tenant_id`: tenant isolation key; `name`: tool name; `description`: purpose description; `owner_system`: owning system; `owner_id`: owner user or service id; `source_type`: source type; `source_ref`: opaque source reference; `risk_level`: governance risk; `mutating`: whether execution can mutate state; `enabled`: execution enabled flag; `parameter_schema_json`: parameter schema JSON text; `permission_policy_json`: permission policy JSON text; `audit_policy_json`: audit policy JSON text; `workload_type`: execution workload type for sandbox routing; `created_at`: registration timestamp; `updated_at`: update timestamp. |
+| `ha_tool_definitions` | `id`: tool id; `tenant_id`: tenant isolation key; `name`: tool name; `description`: purpose description; `owner_system`: owning system; `owner_id`: owner user or service id; `source_type`: source type; `source_ref`: opaque source reference; `risk_level`: governance risk; `mutating`: whether execution can mutate state; `enabled`: execution enabled flag; `parameter_schema_json`: parameter schema JSON text; `output_schema_json`: output type/schema metadata for structured results; `permission_policy_json`: permission policy JSON text; `audit_policy_json`: audit policy JSON text; `workload_type`: execution workload type for sandbox routing; `created_at`: registration timestamp; `updated_at`: update timestamp. |
 | `ha_tool_audit_records` | `id`: audit id; `occurred_at`: execution timestamp; `tenant_id`: tenant isolation key; `user_id`: user isolation key; `agent_id`: agent isolation key; `session_id`: session isolation key; `tool_id`: tool id; `tool_name`: tool name at execution time; `source_type`: source type at execution time; `risk_level`: risk level at execution time; `status`: execution status; `sanitized_input_json`: sanitized input JSON text; `sanitized_output_json`: sanitized output JSON text; `duration_millis`: duration in milliseconds; `approval_id`: approval id when present; `reviewer_id`: reviewer id when present; `idempotency_key`: caller idempotency key; `failure_reason`: denial or failure reason. |
 | `ha_tool_idempotency_records` | `idempotency_key`: stable idempotency key; `parameter_fingerprint`: canonical parameter fingerprint; `result_json`: stored execution result JSON text; `created_at`: record creation timestamp. |
+| `ha_tool_pending_confirmations` | `confirmation_id`: HITL pause id; `tenant_id`: tenant isolation key; `user_id`: user isolation key; `agent_id`: agent isolation key; `session_id`: session isolation key; `tool_id`: tool id; `tool_name`: tool name captured for prompt rendering; `source_type`: tool source type; `risk_level`: tool risk level; `status`: confirmation lifecycle status; `parameters_json`: original parameters for confirm resume; `sanitized_input_json`: redacted display parameters; `operation_summary_json`: user-visible summary including confirmation id; `parameter_fingerprint`: canonical parameter fingerprint; `idempotency_key`: caller idempotency key; `created_at`: creation timestamp; `updated_at`: update timestamp; `expires_at`: stale-after timestamp; `decided_at`: confirm/reject timestamp; `decision_reason`: decision note. |
 | `ha_telemetry_events` | `id`: telemetry event id; `occurred_at`: event timestamp; `type`: event type; `tenant_id`: tenant isolation key; `user_id`: user isolation key; `agent_id`: agent isolation key; `component`: emitting component; `duration_millis`: observed duration; `attributes_json`: event attributes JSON text. |
 
 ## MySQL Metadata Verification
@@ -92,12 +95,13 @@ where table_schema = database()
     'ha_tool_definitions',
     'ha_tool_audit_records',
     'ha_tool_idempotency_records',
+    'ha_tool_pending_confirmations',
     'ha_telemetry_events'
   )
   and table_comment <> '';
 ```
 
-Expected result: `commented_tables = 15`.
+Expected result: `commented_tables = 16`.
 
 ```sql
 select table_name, column_name
@@ -118,6 +122,7 @@ where table_schema = database()
     'ha_tool_definitions',
     'ha_tool_audit_records',
     'ha_tool_idempotency_records',
+    'ha_tool_pending_confirmations',
     'ha_telemetry_events'
   )
   and (column_comment is null or column_comment = '')

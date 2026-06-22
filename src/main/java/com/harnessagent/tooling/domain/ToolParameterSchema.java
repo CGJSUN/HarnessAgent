@@ -11,17 +11,27 @@ public record ToolParameterSchema(
         Set<String> requiredParameters,
         Set<String> optionalParameters,
         Map<String, Set<String>> allowedValues,
-        Set<String> sensitiveParameters) {
+        Set<String> sensitiveParameters,
+        Set<String> workspacePathParameters) {
 
     public ToolParameterSchema {
         requiredParameters = safeSet(requiredParameters);
         optionalParameters = safeSet(optionalParameters);
         allowedValues = safeValueMap(allowedValues);
         sensitiveParameters = safeSet(sensitiveParameters);
+        workspacePathParameters = safeSet(workspacePathParameters);
+    }
+
+    public ToolParameterSchema(
+            Set<String> requiredParameters,
+            Set<String> optionalParameters,
+            Map<String, Set<String>> allowedValues,
+            Set<String> sensitiveParameters) {
+        this(requiredParameters, optionalParameters, allowedValues, sensitiveParameters, Set.of());
     }
 
     public static ToolParameterSchema empty() {
-        return new ToolParameterSchema(Set.of(), Set.of(), Map.of(), Set.of());
+        return new ToolParameterSchema(Set.of(), Set.of(), Map.of(), Set.of(), Set.of());
     }
 
     public Optional<String> validate(Map<String, Object> parameters) {
@@ -47,7 +57,9 @@ public record ToolParameterSchema(
     }
 
     public Set<String> allowedParameters() {
-        return Stream.concat(requiredParameters.stream(), optionalParameters.stream())
+        return Stream.concat(
+                        Stream.concat(requiredParameters.stream(), optionalParameters.stream()),
+                        workspacePathParameters.stream())
                 .collect(Collectors.toUnmodifiableSet());
     }
 

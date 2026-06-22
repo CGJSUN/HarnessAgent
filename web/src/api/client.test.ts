@@ -67,11 +67,13 @@ describe("createSseParser", () => {
 });
 
 describe("ApiClient", () => {
-  it("uses stable confirmation identifiers for the same pending tool prompt", async () => {
+  it("resumes tool confirmations by confirmation id without replaying sanitized parameters", async () => {
     const bodies: unknown[] = [];
+    const requests: string[] = [];
     const client = new ApiClient({
       getIdentity: () => DEFAULT_IDENTITY,
-      fetcher: async (_input, init) => {
+      fetcher: async (input, init) => {
+        requests.push(String(input));
         bodies.push(JSON.parse(String(init?.body)));
         return new Response(
           JSON.stringify({
@@ -88,6 +90,7 @@ describe("ApiClient", () => {
       }
     });
     const prompt = {
+      confirmationId: "confirmation-1",
       toolId: "tool-1",
       toolName: "finance.transfer",
       sessionId: "session-1",
@@ -99,7 +102,13 @@ describe("ApiClient", () => {
     await client.executeToolConfirmation("agent-a", prompt, true);
     await client.executeToolConfirmation("agent-a", prompt, true);
 
+    expect(requests).toEqual([
+      "/api/tools/confirmations/confirmation-1/resume",
+      "/api/tools/confirmations/confirmation-1/resume"
+    ]);
     expect(bodies).toHaveLength(2);
+    expect(bodies[0]).not.toHaveProperty("parameters");
+    expect(bodies[0]).toMatchObject({ action: "CONFIRM", agentId: "agent-a", sessionId: "session-1" });
     expect((bodies[0] as { idempotencyKey: string }).idempotencyKey).toBe("idem-1");
     expect((bodies[1] as { idempotencyKey: string }).idempotencyKey).toBe("idem-1");
     expect((bodies[0] as { approvalId: string }).approvalId).toBe((bodies[1] as { approvalId: string }).approvalId);

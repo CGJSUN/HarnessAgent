@@ -17,6 +17,7 @@ public record ToolDefinition(
         boolean mutating,
         boolean enabled,
         ToolParameterSchema parameterSchema,
+        ToolOutputSchema outputSchema,
         ToolPermissionPolicy permissionPolicy,
         ToolAuditPolicy auditPolicy,
         AgentWorkloadType workloadType,
@@ -34,6 +35,7 @@ public record ToolDefinition(
         sourceRef = defaultString(sourceRef, ownerSystem);
         riskLevel = classifyRisk(riskLevel, mutating, name);
         parameterSchema = parameterSchema == null ? ToolParameterSchema.empty() : parameterSchema;
+        outputSchema = outputSchema == null ? ToolOutputSchema.empty() : outputSchema;
         permissionPolicy = permissionPolicy == null ? ToolPermissionPolicy.allowAll() : permissionPolicy;
         auditPolicy = auditPolicy == null ? ToolAuditPolicy.standard() : auditPolicy;
         workloadType = workloadType == null ? AgentWorkloadType.OFFICE : workloadType;
@@ -71,6 +73,85 @@ public record ToolDefinition(
                 mutating,
                 enabled,
                 parameterSchema,
+                ToolOutputSchema.empty(),
+                permissionPolicy,
+                auditPolicy,
+                AgentWorkloadType.OFFICE,
+                createdAt,
+                updatedAt);
+    }
+
+    public ToolDefinition(
+            String id,
+            String tenantId,
+            String name,
+            String description,
+            String ownerSystem,
+            String ownerId,
+            ToolSourceType sourceType,
+            String sourceRef,
+            ToolRiskLevel riskLevel,
+            boolean mutating,
+            boolean enabled,
+            ToolParameterSchema parameterSchema,
+            ToolPermissionPolicy permissionPolicy,
+            ToolAuditPolicy auditPolicy,
+            AgentWorkloadType workloadType,
+            Instant createdAt,
+            Instant updatedAt) {
+        this(
+                id,
+                tenantId,
+                name,
+                description,
+                ownerSystem,
+                ownerId,
+                sourceType,
+                sourceRef,
+                riskLevel,
+                mutating,
+                enabled,
+                parameterSchema,
+                ToolOutputSchema.empty(),
+                permissionPolicy,
+                auditPolicy,
+                workloadType,
+                createdAt,
+                updatedAt);
+    }
+
+    public ToolDefinition(
+            String id,
+            String tenantId,
+            String name,
+            String description,
+            String ownerSystem,
+            String ownerId,
+            ToolSourceType sourceType,
+            String sourceRef,
+            ToolRiskLevel riskLevel,
+            boolean mutating,
+            boolean enabled,
+            ToolParameterSchema parameterSchema,
+            ToolPermissionPolicy permissionPolicy,
+            ToolAuditPolicy auditPolicy,
+            ToolOutputSchema outputSchema,
+            Instant createdAt,
+            Instant updatedAt) {
+        this(
+                id,
+                tenantId,
+                name,
+                description,
+                ownerSystem,
+                ownerId,
+                sourceType,
+                sourceRef,
+                riskLevel,
+                mutating,
+                enabled,
+                parameterSchema,
+                outputSchema,
                 permissionPolicy,
                 auditPolicy,
                 AgentWorkloadType.OFFICE,
@@ -92,6 +173,7 @@ public record ToolDefinition(
                 mutating,
                 nextEnabled,
                 parameterSchema,
+                outputSchema,
                 permissionPolicy,
                 auditPolicy,
                 workloadType,

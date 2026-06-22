@@ -16,7 +16,10 @@ import com.harnessagent.tooling.audit.ToolAuditRecord;
 import com.harnessagent.tooling.domain.ToolAuditPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolExecutionStatus;
+import com.harnessagent.tooling.domain.ToolOutputSchema;
 import com.harnessagent.tooling.domain.ToolParameterSchema;
+import com.harnessagent.tooling.domain.ToolPendingConfirmation;
+import com.harnessagent.tooling.domain.ToolPendingConfirmationStatus;
 import com.harnessagent.tooling.domain.ToolPermissionPolicy;
 import com.harnessagent.tooling.domain.ToolRiskLevel;
 import com.harnessagent.tooling.domain.ToolSourceType;
@@ -66,8 +69,23 @@ class JdbcToolStoreTest {
                     "tenant-a:tool-a:idem-a",
                     "{ticketId=T-2}",
                     ToolExecutionResult.success(tool.id(), Map.of("externalId", "E-2")));
+            ToolPendingConfirmation pending = ToolPendingConfirmation.pending(
+                    "tenant-a",
+                    "user-a",
+                    "agent-a",
+                    "session-a",
+                    tool,
+                    Map.of("ticketId", "T-1", "status", "approved"),
+                    Map.of("ticketId", "T-1", "status", "approved"),
+                    Map.of("toolName", tool.name(), "riskLevel", tool.riskLevel().name()),
+                    "{status=approved,ticketId=T-1}",
+                    "idem-a");
+            writer.savePendingConfirmation(pending);
 
             assertThat(reader.findTool("tool-a")).contains(tool);
+            assertThat(reader.findTool("tool-a")).get()
+                    .extracting(found -> found.outputSchema().outputType())
+                    .isEqualTo("application/json");
             assertThat(reader.listTools("tenant-a")).containsExactly(tool);
             assertThat(reader.listTools("tenant-b")).isEmpty();
             assertThat(reader.listAudit("tenant-a"))
@@ -78,6 +96,46 @@ class JdbcToolStoreTest {
                     .satisfies(record -> {
                         assertThat(record.parameterFingerprint()).isEqualTo("{ticketId=T-1}");
                         assertThat(record.result().output()).containsEntry("externalId", "E-1");
+                    });
+            assertThat(reader.findPendingConfirmation(pending.confirmationId()))
+                    .get()
+                    .satisfies(found -> {
+                        assertThat(found.status()).isEqualTo(ToolPendingConfirmationStatus.PENDING);
+                        assertThat(found.parameters()).containsEntry("status", "approved");
+                        assertThat(found.operationSummary()).containsEntry("toolName", tool.name());
+                    });
+            assertThat(reader.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a"))
+                    .extracting(ToolPendingConfirmation::confirmationId)
+                    .containsExactly(pending.confirmationId());
+
+            assertThat(writer.claimPendingConfirmation(pending.confirmationId(), "confirmed")).isTrue();
+            assertThat(writer.claimPendingConfirmation(pending.confirmationId(), "confirmed again")).isFalse();
+            assertThat(reader.findPendingConfirmation(pending.confirmationId()))
+                    .get()
+                    .satisfies(found -> {
+                        assertThat(found.status()).isEqualTo(ToolPendingConfirmationStatus.CONFIRMED);
+                        assertThat(found.decisionReason()).isEqualTo("confirmed");
+                    });
+            assertThat(reader.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a")).isEmpty();
+
+            ToolPendingConfirmation rejectedPending = ToolPendingConfirmation.pending(
+                    "tenant-a",
+                    "user-a",
+                    "agent-a",
+                    "session-a",
+                    tool,
+                    Map.of("ticketId", "T-2", "status", "rejected"),
+                    Map.of("ticketId", "T-2", "status", "rejected"),
+                    Map.of("toolName", tool.name(), "riskLevel", tool.riskLevel().name()),
+                    "{status=rejected,ticketId=T-2}",
+                    "idem-b");
+            writer.savePendingConfirmation(rejectedPending);
+            writer.savePendingConfirmation(rejectedPending.rejected("user rejected"));
+            assertThat(reader.findPendingConfirmation(rejectedPending.confirmationId()))
+                    .get()
+                    .satisfies(found -> {
+                        assertThat(found.status()).isEqualTo(ToolPendingConfirmationStatus.REJECTED);
+                        assertThat(found.decisionReason()).isEqualTo("user rejected");
                     });
 
             ToolDefinition disabled = tool.withEnabled(false);
@@ -109,6 +167,7 @@ class JdbcToolStoreTest {
                         Set.of("token")),
                 new ToolPermissionPolicy(Set.of("tenant-a"), Set.of("user-a"), Set.of("agent-a"), Set.of(), Set.of()),
                 ToolAuditPolicy.enabled(Set.of("token"), Set.of("email")),
+                ToolOutputSchema.structured("application/json", Map.of("type", "object")),
                 now,
                 now);
     }

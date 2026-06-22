@@ -197,6 +197,8 @@ class ConsoleServiceTest {
 
         assertThat(view.confirmationPrompts()).hasSize(1);
         ToolConfirmationView prompt = view.confirmationPrompts().get(0);
+        assertThat(prompt.confirmationId()).isNotBlank();
+        assertThat(prompt.status()).isEqualTo("PENDING");
         assertThat(prompt.idempotencyKey()).isEqualTo("idem-1");
         assertThat(prompt.operationSummary()).containsEntry("toolName", "ticket.update");
         assertThat(prompt.operationSummary()).containsKey("parameters");

@@ -820,14 +820,14 @@ Flyway common DDL 位于 `classpath:db/migration`，数据库专属注释 migrat
 
 - `ha_session_messages`
 - `ha_knowledge_sources`、`ha_knowledge_chunks`
-- `ha_tool_definitions`、`ha_tool_audit_records`、`ha_tool_idempotency_records`
+- `ha_tool_definitions`、`ha_tool_audit_records`、`ha_tool_idempotency_records`、`ha_tool_pending_confirmations`
 - `ha_security_audit`
 - `ha_budget_counters`
 - `ha_agent_state`
 - `ha_telemetry_events`
 - `ha_snapshot_metadata`、`ha_snapshot_content`
 
-所有生产查询路径都包含 tenant、user、agent、session、time 或 resource 维度索引。JSON 文本字段包括权限策略、工具参数 schema、审计策略、遥测 attributes、RAG 访问列表和工具审计输入输出；这些字段保存业务治理状态，不应写入 schema comment。备份恢复时至少同时恢复 session、agent state、tool idempotency、audit、telemetry 和 snapshot 表；只恢复业务消息而不恢复 `ha_agent_state` 会导致 AgentScope memory 和 compaction 状态丢失。
+所有生产查询路径都包含 tenant、user、agent、session、time 或 resource 维度索引。JSON 文本字段包括权限策略、工具参数 schema、工具输出 schema、HITL pending 参数、审计策略、遥测 attributes、RAG 访问列表和工具审计输入输出；这些字段保存业务治理状态，不应写入 schema comment。备份恢复时至少同时恢复 session、agent state、tool idempotency、tool pending confirmation、audit、telemetry 和 snapshot 表；只恢复业务消息而不恢复 `ha_agent_state` 会导致 AgentScope memory 和 compaction 状态丢失。
 
 聊天恢复策略以 `SessionStore` 作为消息历史来源、以 `AgentStateStore` 作为 AgentScope 上下文来源。若同一 session 已存在 AgentScope state，后续调用只把当前轮消息交给 runtime，避免把已经由 AgentScope 管理的历史再次回放；若 AgentScope state 不存在，则使用持久化消息历史初始化上下文。
 

@@ -1,0 +1,23 @@
+ALTER TABLE ha_tool_definitions MODIFY COLUMN output_schema_json VARCHAR(4096) NOT NULL DEFAULT '{}' COMMENT 'Tool output schema and type metadata used to render structured tool results.';
+
+ALTER TABLE ha_tool_pending_confirmations COMMENT = 'Durable human-in-the-loop pause points for personal tool calls.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN confirmation_id VARCHAR(128) NOT NULL COMMENT 'Application generated HITL confirmation id.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN tenant_id VARCHAR(128) NOT NULL COMMENT 'Tenant isolation key for the pending tool confirmation.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN user_id VARCHAR(128) NOT NULL COMMENT 'Personal owner or authenticated user id that requested the tool call.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN agent_id VARCHAR(128) NOT NULL COMMENT 'Agent id that requested the tool call.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN session_id VARCHAR(128) NOT NULL COMMENT 'Session id where the tool call paused.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN tool_id VARCHAR(128) NOT NULL COMMENT 'Registered tool id.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN tool_name VARCHAR(256) NOT NULL COMMENT 'Registered tool display name captured for prompt rendering.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN source_type VARCHAR(32) NOT NULL COMMENT 'Tool source type such as internal, MCP, Agent, or protocol adapter.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN risk_level VARCHAR(32) NOT NULL COMMENT 'Risk level that caused or accompanied the confirmation.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN status VARCHAR(64) NOT NULL COMMENT 'Confirmation lifecycle status.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN parameters_json TEXT NOT NULL COMMENT 'Original tool parameters used for confirm resume when the client does not replay sensitive values.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN sanitized_input_json TEXT NOT NULL COMMENT 'Redacted parameters safe for console and audit display.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN operation_summary_json TEXT NOT NULL COMMENT 'User-visible operation summary including confirmation id and governance metadata.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN parameter_fingerprint TEXT NOT NULL COMMENT 'Canonical parameter fingerprint used for idempotency and change tracking.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN idempotency_key VARCHAR(256) NOT NULL COMMENT 'Client idempotency key associated with a mutating tool call.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN created_at TIMESTAMP(6) NOT NULL COMMENT 'Pending confirmation creation timestamp.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN updated_at TIMESTAMP(6) NOT NULL COMMENT 'Pending confirmation last update timestamp.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN expires_at TIMESTAMP(6) NOT NULL COMMENT 'Timestamp after which the pending confirmation should be considered stale.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN decided_at TIMESTAMP(6) NULL COMMENT 'Timestamp when the confirmation was confirmed or rejected.';
+ALTER TABLE ha_tool_pending_confirmations MODIFY COLUMN decision_reason TEXT NOT NULL COMMENT 'Reason recorded when the confirmation is confirmed or rejected.';

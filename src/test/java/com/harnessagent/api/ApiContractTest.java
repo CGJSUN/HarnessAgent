@@ -19,6 +19,7 @@ import com.harnessagent.api.controller.ReleaseController;
 import com.harnessagent.api.controller.SessionController;
 import com.harnessagent.api.controller.ToolController;
 import com.harnessagent.api.request.ChatRequest;
+import com.harnessagent.api.request.ToolExecutionApiRequest;
 import com.harnessagent.api.response.ChatResponse;
 import com.harnessagent.api.response.ErrorResponse;
 import com.harnessagent.api.response.StreamEventKind;
@@ -206,6 +207,35 @@ class ApiContractTest {
     }
 
     @Test
+    void toolControllerRequiresTrustedAgentIdentityForExecution() {
+        ToolController controller = new ToolController(
+                mock(com.harnessagent.tooling.application.ToolService.class),
+                new ApiIdentityResolver());
+        ToolExecutionApiRequest request = new ToolExecutionApiRequest(
+                "tenant-a",
+                "owner-a",
+                "agent-b",
+                "session-a",
+                "tool-a",
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                false,
+                null,
+                null,
+                null);
+
+        assertThatThrownBy(() -> controller.execute(
+                        Map.of(
+                                "X-Tenant-Id", "tenant-a",
+                                "X-User-Id", "owner-a",
+                                "X-Agent-Id", "agent-a"),
+                        request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("agentId");
+    }
+
+    @Test
     void streamEventPayloadKeepsClientVisibleFields() throws Exception {
         KnowledgeCitation citation = new KnowledgeCitation("source-a", "Title", "v1", 0, "chunk-a");
         StreamEventResponse response = new StreamEventResponse(
@@ -295,6 +325,8 @@ class ApiContractTest {
         assertGetMapping(ToolController.class, "list", new String[0]);
         assertPostMapping(ToolController.class, "execute", new String[] {"/execute"});
         assertPostMapping(ToolController.class, "reject", new String[] {"/reject"});
+        assertGetMapping(ToolController.class, "listPendingConfirmations", new String[] {"/confirmations"});
+        assertPostMapping(ToolController.class, "resumeConfirmation", new String[] {"/confirmations/{confirmationId}/resume"});
         assertGetMapping(ToolController.class, "listAudit", new String[] {"/audit"});
 
         assertRootMapping(KnowledgeController.class, "/api/knowledge");

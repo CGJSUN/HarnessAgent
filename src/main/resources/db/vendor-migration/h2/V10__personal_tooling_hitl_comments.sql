@@ -1,0 +1,23 @@
+COMMENT ON COLUMN ha_tool_definitions.output_schema_json IS 'Tool output schema and type metadata used to render structured tool results.';
+
+COMMENT ON TABLE ha_tool_pending_confirmations IS 'Durable human-in-the-loop pause points for personal tool calls.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.confirmation_id IS 'Application generated HITL confirmation id.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.tenant_id IS 'Tenant isolation key for the pending tool confirmation.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.user_id IS 'Personal owner or authenticated user id that requested the tool call.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.agent_id IS 'Agent id that requested the tool call.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.session_id IS 'Session id where the tool call paused.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.tool_id IS 'Registered tool id.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.tool_name IS 'Registered tool display name captured for prompt rendering.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.source_type IS 'Tool source type such as internal, MCP, Agent, or protocol adapter.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.risk_level IS 'Risk level that caused or accompanied the confirmation.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.status IS 'Confirmation lifecycle status.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.parameters_json IS 'Original tool parameters used for confirm resume when the client does not replay sensitive values.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.sanitized_input_json IS 'Redacted parameters safe for console and audit display.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.operation_summary_json IS 'User-visible operation summary including confirmation id and governance metadata.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.parameter_fingerprint IS 'Canonical parameter fingerprint used for idempotency and change tracking.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.idempotency_key IS 'Client idempotency key associated with a mutating tool call.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.created_at IS 'Pending confirmation creation timestamp.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.updated_at IS 'Pending confirmation last update timestamp.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.expires_at IS 'Timestamp after which the pending confirmation should be considered stale.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.decided_at IS 'Timestamp when the confirmation was confirmed or rejected.';
+COMMENT ON COLUMN ha_tool_pending_confirmations.decision_reason IS 'Reason recorded when the confirmation is confirmed or rejected.';
