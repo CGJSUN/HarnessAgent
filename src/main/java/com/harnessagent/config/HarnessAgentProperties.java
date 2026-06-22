@@ -21,6 +21,8 @@ public class HarnessAgentProperties {
 
     private Map<String, ModelProviderDefinition> modelProviders = new LinkedHashMap<>();
 
+    private MemoryRag memoryRag = new MemoryRag();
+
     public String getDefaultAgentId() {
         return defaultAgentId;
     }
@@ -61,6 +63,14 @@ public class HarnessAgentProperties {
         this.modelProviders = modelProviders;
     }
 
+    public MemoryRag getMemoryRag() {
+        return memoryRag;
+    }
+
+    public void setMemoryRag(MemoryRag memoryRag) {
+        this.memoryRag = memoryRag == null ? new MemoryRag() : memoryRag;
+    }
+
     public AgentDefinition requireAgent(String agentId) {
         AgentDefinition definition = agents.get(agentId);
         if (definition == null) {
@@ -86,6 +96,18 @@ public class HarnessAgentProperties {
 
         public void setLocalDirectory(Path localDirectory) {
             this.localDirectory = localDirectory;
+        }
+    }
+
+    public static class MemoryRag {
+        private String provider = "local";
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider == null || provider.isBlank() ? "local" : provider.trim();
         }
     }
 

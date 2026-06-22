@@ -254,6 +254,38 @@ class ChatServiceTest {
     }
 
     @Test
+    void configuredExternalMemoryRagProviderFailsBeforeModelCallWhenNotWired() {
+        HarnessAgentProperties properties = new HarnessAgentProperties();
+        properties.getMemoryRag().setProvider("mem0");
+        ProductionRuntimeProperties runtimeProperties = new ProductionRuntimeProperties();
+        ChatService service = new ChatService(
+                contextFactory,
+                sessionStore,
+                agentRuntime,
+                knowledgeService,
+                RuntimeTelemetry.noop(),
+                new BudgetLimiter(runtimeProperties, new RecordingBudgetCounterStore()),
+                properties,
+                new ModelConfigurationResolver(properties, runtimeProperties),
+                AgentSessionRecoveryService.noop(sessionStore),
+                new PromptInjectionGuard());
+
+        assertThatThrownBy(() -> service.chat(new ChatCommand(
+                        "tenant-a",
+                        "user-a",
+                        "agent-a",
+                        "session-rag-provider",
+                        "发票多久提交",
+                        true,
+                        Set.of(),
+                        Set.of(),
+                        3)).block())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Memory/RAG provider mem0 is not configured");
+        assertThat(agentRuntime.requests).isEmpty();
+    }
+
+    @Test
     void streamsCitationMetadataWhenKnowledgeIsUsed() {
         knowledgeService.ingestDocument(new KnowledgeDocumentInput(
                 new KnowledgeSourceRegistration(

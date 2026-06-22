@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,12 +44,30 @@ public class DurablePersistenceHealthService {
             "ha_snapshot_content",
             "ha_knowledge_sources",
             "ha_knowledge_chunks",
+            "ha_personal_memories",
             "ha_rag_metrics",
             "ha_rag_feedback",
             "ha_tool_definitions",
             "ha_tool_audit_records",
             "ha_tool_idempotency_records",
             "ha_telemetry_events");
+
+    private static final Map<String, List<String>> REQUIRED_COLUMNS = Map.of(
+            "ha_knowledge_sources",
+            List.of("agent_id", "source_type", "source_uri", "index_status", "indexed_at"),
+            "ha_knowledge_chunks",
+            List.of("source_type", "source_uri"),
+            "ha_personal_memories",
+            List.of(
+                    "tenant_id",
+                    "owner_id",
+                    "agent_id",
+                    "session_id",
+                    "layer_name",
+                    "title",
+                    "content",
+                    "status",
+                    "source_id"));
 
     private final ProductionRuntimeProperties properties;
     private final DataSource dataSource;
@@ -180,6 +199,18 @@ public class DurablePersistenceHealthService {
             } catch (RuntimeException ex) {
                 log.warn("production durable health failed reason={} table={}", "missing_table", table);
                 failures.add("Missing durable persistence table: " + table);
+                continue;
+            }
+            List<String> columns = REQUIRED_COLUMNS.getOrDefault(table, List.of());
+            if (columns.isEmpty()) {
+                continue;
+            }
+            try {
+                jdbc.query("select " + String.join(", ", columns) + " from " + table + " where 1 = 0",
+                        resultSet -> null);
+            } catch (RuntimeException ex) {
+                log.warn("production durable health failed reason={} table={}", "missing_columns", table);
+                failures.add("Missing durable persistence columns on table: " + table);
             }
         }
     }

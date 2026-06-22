@@ -20,6 +20,8 @@ import com.harnessagent.security.application.SafeLogFields;
 import com.harnessagent.security.domain.SecurityDecision;
 import com.harnessagent.rag.retrieval.KnowledgeRetrievalResult;
 import com.harnessagent.rag.application.KnowledgeService;
+import com.harnessagent.rag.application.LocalMemoryRagProvider;
+import com.harnessagent.rag.application.MemoryRagProviderRegistry;
 import com.harnessagent.rag.domain.RetrievalPrincipal;
 import com.harnessagent.rag.domain.RetrievedKnowledge;
 import com.harnessagent.runtime.RuntimeContextFactory;
@@ -51,6 +53,7 @@ public class ChatService {
     private final SessionStore sessionStore;
     private final AgentRuntime agentRuntime;
     private final KnowledgeService knowledgeService;
+    private final MemoryRagProviderRegistry memoryRagProviderRegistry;
     private final RuntimeTelemetry telemetry;
     private final BudgetLimiter budgetLimiter;
     private final HarnessAgentProperties properties;
@@ -65,6 +68,7 @@ public class ChatService {
             SessionStore sessionStore,
             AgentRuntime agentRuntime,
             KnowledgeService knowledgeService,
+            MemoryRagProviderRegistry memoryRagProviderRegistry,
             RuntimeTelemetry telemetry,
             BudgetLimiter budgetLimiter,
             HarnessAgentProperties properties,
@@ -76,6 +80,9 @@ public class ChatService {
         this.sessionStore = sessionStore;
         this.agentRuntime = agentRuntime;
         this.knowledgeService = knowledgeService;
+        this.memoryRagProviderRegistry = memoryRagProviderRegistry == null
+                ? defaultMemoryRagProviderRegistry(knowledgeService)
+                : memoryRagProviderRegistry;
         this.telemetry = telemetry;
         this.budgetLimiter = budgetLimiter;
         this.properties = properties;
@@ -103,6 +110,7 @@ public class ChatService {
                 sessionStore,
                 agentRuntime,
                 knowledgeService,
+                defaultMemoryRagProviderRegistry(knowledgeService),
                 telemetry,
                 budgetLimiter,
                 properties,
@@ -110,6 +118,33 @@ public class ChatService {
                 recoveryService,
                 promptInjectionGuard,
                 ContextCompactionService.disabled());
+    }
+
+    public ChatService(
+            RuntimeContextFactory runtimeContextFactory,
+            SessionStore sessionStore,
+            AgentRuntime agentRuntime,
+            KnowledgeService knowledgeService,
+            RuntimeTelemetry telemetry,
+            BudgetLimiter budgetLimiter,
+            HarnessAgentProperties properties,
+            ModelConfigurationResolver modelConfigurationResolver,
+            AgentSessionRecoveryService recoveryService,
+            PromptInjectionGuard promptInjectionGuard,
+            ContextCompactionService contextCompactionService) {
+        this(
+                runtimeContextFactory,
+                sessionStore,
+                agentRuntime,
+                knowledgeService,
+                defaultMemoryRagProviderRegistry(knowledgeService),
+                telemetry,
+                budgetLimiter,
+                properties,
+                modelConfigurationResolver,
+                recoveryService,
+                promptInjectionGuard,
+                contextCompactionService);
     }
 
     public ChatService(
@@ -293,9 +328,11 @@ public class ChatService {
         RetrievalPrincipal principal = new RetrievalPrincipal(
                 command.tenantId(),
                 command.userId(),
+                command.agentId(),
                 safeSet(command.departments()),
                 safeSet(command.roles()));
-        return knowledgeService.retrieve(principal, command.message(), command.knowledgeLimit());
+        return memoryRagProviderRegistry.provider(properties.getMemoryRag().getProvider())
+                .retrieve(principal, command.message(), command.knowledgeLimit());
     }
 
     private RuntimeContextScope context(ChatCommand command) {
@@ -442,5 +479,9 @@ public class ChatService {
             }
         }
         return null;
+    }
+
+    private static MemoryRagProviderRegistry defaultMemoryRagProviderRegistry(KnowledgeService knowledgeService) {
+        return MemoryRagProviderRegistry.withLocalProvider(new LocalMemoryRagProvider(knowledgeService));
     }
 }

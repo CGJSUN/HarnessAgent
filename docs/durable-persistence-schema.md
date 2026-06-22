@@ -1,6 +1,6 @@
 # Durable Persistence Schema
 
-This document describes the durable persistence schema created by `V1__durable_persistence.sql` and incremental schema migrations such as `V3__session_message_content_blocks.sql`. Vendor-specific comment migrations document the schema with V2 baseline comments and later V4 column comments.
+This document describes the durable persistence schema created by `V1__durable_persistence.sql` and incremental schema migrations such as `V3__session_message_content_blocks.sql` and `V7__personal_memory_rag_metadata.sql`. Vendor-specific comment migrations document the schema with V2 baseline comments and later V4/V8 column comments.
 
 ## Personal Edition Interpretation
 
@@ -14,8 +14,9 @@ Flyway locations:
 - Vendor comments: `classpath:db/vendor-migration/{vendor}`
 - H2 comments: `src/main/resources/db/vendor-migration/h2/V2__durable_persistence_comments.sql`, `src/main/resources/db/vendor-migration/h2/V4__session_message_content_blocks_comments.sql`
 - MySQL comments: `src/main/resources/db/vendor-migration/mysql/V2__durable_persistence_comments.sql`, `src/main/resources/db/vendor-migration/mysql/V4__session_message_content_blocks_comments.sql`
+- Personal Memory/RAG comments: `src/main/resources/db/vendor-migration/{h2,mysql}/V8__personal_memory_rag_metadata_comments.sql`
 
-The V2 and V4 scripts add metadata only. They must not store prompt text, retrieval evidence, tool payloads, DSNs, Redis URIs, snapshot payloads, or workspace file data in comments.
+The V2, V4, V6, and V8 scripts add metadata only. They must not store prompt text, retrieval evidence, tool payloads, DSNs, Redis URIs, snapshot payloads, or workspace file data in comments.
 
 ## Table Dictionary
 
@@ -27,8 +28,9 @@ The V2 and V4 scripts add metadata only. They must not store prompt text, retrie
 | `ha_agent_state` | Durable AgentScope state. | `tenant_id`, `user_id`, `agent_id`, `session_id`, `scope`, `updated_at` |
 | `ha_snapshot_metadata` | Workspace snapshot metadata. | `tenant_id`, `agent_id`, `session_id`, `task_id`, `created_at` |
 | `ha_snapshot_content` | Snapshot artifact payload linked to metadata. | `snapshot_id` |
-| `ha_knowledge_sources` | RAG knowledge source metadata and access policy. | `tenant_id`, `owner_id`, `updated_at` |
+| `ha_knowledge_sources` | RAG knowledge source metadata and access policy. | `tenant_id`, `owner_id`, `agent_id`, `updated_at` |
 | `ha_knowledge_chunks` | Searchable chunks derived from governed sources. | `tenant_id`, `source_id`, `chunk_index` |
+| `ha_personal_memories` | Explicit personal memory write records and RAG projection linkage. | `tenant_id`, `owner_id`, `agent_id`, `updated_at` |
 | `ha_rag_metrics` | RAG hit, permission filtering, and no-answer metrics. | `tenant_id`, `user_id`, `created_at` |
 | `ha_rag_feedback` | User feedback on RAG answers. | `tenant_id`, `user_id`, `created_at` |
 | `ha_tool_definitions` | Governed tool registry. | `tenant_id`, `name`, `owner_system`, `owner_id` |
@@ -57,8 +59,9 @@ Personal edition mapping:
 | `ha_agent_state` | `state_key`: stable state key; `tenant_id`: tenant isolation key; `user_id`: user isolation key; `agent_id`: agent isolation key; `session_id`: session isolation key; `scope`: AgentScope memory or state scope; `state_value`: serialized state text; `updated_at`: last update timestamp. |
 | `ha_snapshot_metadata` | `id`: snapshot id; `tenant_id`: tenant isolation key; `agent_id`: agent isolation key; `session_id`: session isolation key; `task_id`: task or run id; `created_at`: snapshot timestamp; `backend_type`: storage backend type; `location`: opaque storage reference. |
 | `ha_snapshot_content` | `snapshot_id`: snapshot metadata id and primary key; `content`: snapshot artifact payload. |
-| `ha_knowledge_sources` | `id`: knowledge source id; `tenant_id`: tenant isolation key; `owner_id`: owner user id; `title`: display title; `version`: version label; `visibility`: visibility policy; `allowed_departments_json`: allowed departments JSON text; `allowed_roles_json`: allowed roles JSON text; `allowed_users_json`: allowed users JSON text; `update_policy`: update policy; `status`: lifecycle status; `created_at`: creation timestamp; `updated_at`: update timestamp. |
-| `ha_knowledge_chunks` | `id`: chunk id; `source_id`: source id; `tenant_id`: tenant isolation key; `title`: source title copied for citation; `version`: source version copied for citation; `chunk_index`: order within source; `content`: chunk text used after permission filtering; `tokens_json`: search tokens JSON text. |
+| `ha_knowledge_sources` | `id`: knowledge source id; `tenant_id`: tenant isolation key; `owner_id`: owner user id; `agent_id`: personal Agent id when the source is Agent-scoped; `title`: display title; `version`: version label; `visibility`: visibility policy; `allowed_departments_json`: allowed departments JSON text; `allowed_roles_json`: allowed roles JSON text; `allowed_users_json`: allowed users JSON text; `update_policy`: update policy; `source_type`: source kind such as inline text, local file, local directory, URL, or memory; `source_uri`: workspace path, URL, or memory URI used for citations and export; `index_status`: searchable projection lifecycle; `indexed_at`: last successful indexing timestamp; `status`: lifecycle status; `created_at`: creation timestamp; `updated_at`: update timestamp. |
+| `ha_knowledge_chunks` | `id`: chunk id; `source_id`: source id; `tenant_id`: tenant isolation key; `title`: source title copied for citation; `version`: source version copied for citation; `chunk_index`: order within source; `content`: chunk text used after permission filtering; `tokens_json`: search tokens JSON text; `source_type`: source kind copied for citation reconstruction; `source_uri`: source URI copied for citation reconstruction. |
+| `ha_personal_memories` | `id`: memory id; `tenant_id`: compatibility tenant isolation key; `owner_id`: personal owner id; `agent_id`: personal Agent id; `session_id`: session where the write was requested; `layer_name`: memory layer; `title`: write summary; `content`: memory content projected to RAG only after confirmation; `status`: write lifecycle status; `source_id`: linked knowledge source id when confirmed; `created_at`: creation timestamp; `updated_at`: update timestamp. |
 | `ha_rag_metrics` | `id`: metric id; `tenant_id`: tenant isolation key; `user_id`: retrieval user; `query_text`: original retrieval query for governed analytics; `hit`: whether accessible evidence was found; `candidate_count`: candidate chunks before permission filtering; `permitted_count`: chunks after permission filtering; `failure_reason`: no-answer or retrieval failure code; `created_at`: metric timestamp. |
 | `ha_rag_feedback` | `id`: feedback id; `tenant_id`: tenant isolation key; `user_id`: feedback user; `query_text`: retrieval query associated with feedback; `helpful`: helpful marker; `comment_text`: optional feedback comment; `created_at`: feedback timestamp. |
 | `ha_tool_definitions` | `id`: tool id; `tenant_id`: tenant isolation key; `name`: tool name; `description`: purpose description; `owner_system`: owning system; `owner_id`: owner user or service id; `source_type`: source type; `source_ref`: opaque source reference; `risk_level`: governance risk; `mutating`: whether execution can mutate state; `enabled`: execution enabled flag; `parameter_schema_json`: parameter schema JSON text; `permission_policy_json`: permission policy JSON text; `audit_policy_json`: audit policy JSON text; `workload_type`: execution workload type for sandbox routing; `created_at`: registration timestamp; `updated_at`: update timestamp. |
@@ -83,6 +86,7 @@ where table_schema = database()
     'ha_snapshot_content',
     'ha_knowledge_sources',
     'ha_knowledge_chunks',
+    'ha_personal_memories',
     'ha_rag_metrics',
     'ha_rag_feedback',
     'ha_tool_definitions',
@@ -93,7 +97,7 @@ where table_schema = database()
   and table_comment <> '';
 ```
 
-Expected result: `commented_tables = 14`.
+Expected result: `commented_tables = 15`.
 
 ```sql
 select table_name, column_name
@@ -108,6 +112,7 @@ where table_schema = database()
     'ha_snapshot_content',
     'ha_knowledge_sources',
     'ha_knowledge_chunks',
+    'ha_personal_memories',
     'ha_rag_metrics',
     'ha_rag_feedback',
     'ha_tool_definitions',

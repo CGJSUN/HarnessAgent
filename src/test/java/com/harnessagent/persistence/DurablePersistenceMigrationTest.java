@@ -22,6 +22,7 @@ class DurablePersistenceMigrationTest {
             "ha_snapshot_content",
             "ha_knowledge_sources",
             "ha_knowledge_chunks",
+            "ha_personal_memories",
             "ha_rag_metrics",
             "ha_rag_feedback",
             "ha_tool_definitions",
@@ -69,8 +70,8 @@ class DurablePersistenceMigrationTest {
                 }
             }
 
-            assertThat(tableComments).isEqualTo(14);
-            assertThat(columnComments).isEqualTo(128);
+            assertThat(tableComments).isEqualTo(15);
+            assertThat(columnComments).isEqualTo(147);
             assertThat(sessionContentBlocksColumn).isTrue();
         }
     }

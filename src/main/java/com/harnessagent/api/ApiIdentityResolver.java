@@ -38,6 +38,28 @@ public class ApiIdentityResolver {
                 csv(header(headers, "X-Departments")));
     }
 
+    public SecurityPrincipal resolveTrusted(
+            Map<String, String> headers,
+            String requestTenantId,
+            String requestUserId) {
+        String headerTenantId = header(headers, "X-Tenant-Id");
+        String headerUserId = header(headers, "X-User-Id");
+        requireMatch("tenantId", requestTenantId, headerTenantId);
+        requireMatch("userId", requestUserId, headerUserId);
+        return new SecurityPrincipal(
+                headerTenantId.trim(),
+                headerUserId.trim(),
+                provider(header(headers, "X-Identity-Provider")),
+                csv(header(headers, "X-Roles")),
+                csv(header(headers, "X-Departments")));
+    }
+
+    public String resolveTrustedAgentId(Map<String, String> headers, String requestAgentId) {
+        String headerAgentId = header(headers, "X-Agent-Id");
+        requireMatch("agentId", requestAgentId, headerAgentId);
+        return headerAgentId.trim();
+    }
+
     private static void requireMatch(String field, String requestValue, String trustedValue) {
         if (trustedValue == null || trustedValue.isBlank()) {
             throw new IllegalStateException("Authenticated " + field + " is required");

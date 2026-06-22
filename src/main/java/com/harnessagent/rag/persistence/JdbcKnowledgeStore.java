@@ -18,9 +18,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 import com.harnessagent.rag.domain.KnowledgeChunk;
+import com.harnessagent.rag.domain.KnowledgeIndexStatus;
 import com.harnessagent.rag.domain.KnowledgeSource;
 import com.harnessagent.rag.domain.KnowledgeSourceStatus;
+import com.harnessagent.rag.domain.KnowledgeSourceType;
 import com.harnessagent.rag.domain.KnowledgeVisibility;
+import com.harnessagent.rag.domain.MemoryLayer;
+import com.harnessagent.rag.domain.MemoryWriteStatus;
+import com.harnessagent.rag.domain.PersonalMemoryRecord;
 import com.harnessagent.rag.domain.RagFeedback;
 import com.harnessagent.rag.domain.RagMetric;
 
@@ -48,12 +53,13 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     public KnowledgeSource saveSource(KnowledgeSource source) {
         int updated = jdbc.update("""
                 update ha_knowledge_sources
-                set owner_id = ?, title = ?, version = ?, visibility = ?, allowed_departments_json = ?,
-                    allowed_roles_json = ?, allowed_users_json = ?, update_policy = ?, status = ?,
-                    created_at = ?, updated_at = ?
+                set owner_id = ?, agent_id = ?, title = ?, version = ?, visibility = ?, allowed_departments_json = ?,
+                    allowed_roles_json = ?, allowed_users_json = ?, update_policy = ?, source_type = ?,
+                    source_uri = ?, index_status = ?, indexed_at = ?, status = ?, created_at = ?, updated_at = ?
                 where id = ?
                 """,
                 source.ownerId(),
+                source.agentId(),
                 source.title(),
                 source.version(),
                 source.visibility().name(),
@@ -61,6 +67,10 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
                 JsonColumn.write(objectMapper, source.allowedRoles()),
                 JsonColumn.write(objectMapper, source.allowedUsers()),
                 source.updatePolicy(),
+                source.sourceType().name(),
+                source.sourceUri(),
+                source.indexStatus().name(),
+                timestampNullable(source.indexedAt()),
                 source.status().name(),
                 timestamp(source.createdAt()),
                 timestamp(source.updatedAt()),
@@ -68,13 +78,15 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         if (updated == 0) {
             jdbc.update("""
                     insert into ha_knowledge_sources (
-                        id, tenant_id, owner_id, title, version, visibility, allowed_departments_json,
-                        allowed_roles_json, allowed_users_json, update_policy, status, created_at, updated_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        id, tenant_id, owner_id, agent_id, title, version, visibility, allowed_departments_json,
+                        allowed_roles_json, allowed_users_json, update_policy, source_type, source_uri,
+                        index_status, indexed_at, status, created_at, updated_at
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     source.id(),
                     source.tenantId(),
                     source.ownerId(),
+                    source.agentId(),
                     source.title(),
                     source.version(),
                     source.visibility().name(),
@@ -82,6 +94,10 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
                     JsonColumn.write(objectMapper, source.allowedRoles()),
                     JsonColumn.write(objectMapper, source.allowedUsers()),
                     source.updatePolicy(),
+                    source.sourceType().name(),
+                    source.sourceUri(),
+                    source.indexStatus().name(),
+                    timestampNullable(source.indexedAt()),
                     source.status().name(),
                     timestamp(source.createdAt()),
                     timestamp(source.updatedAt()));
@@ -96,8 +112,9 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         }
         try {
             return Optional.ofNullable(jdbc.queryForObject("""
-                    select id, tenant_id, owner_id, title, version, visibility, allowed_departments_json,
-                           allowed_roles_json, allowed_users_json, update_policy, status, created_at, updated_at
+                    select id, tenant_id, owner_id, agent_id, title, version, visibility, allowed_departments_json,
+                           allowed_roles_json, allowed_users_json, update_policy, source_type, source_uri,
+                           index_status, indexed_at, status, created_at, updated_at
                     from ha_knowledge_sources
                     where id = ?
                     """, sourceMapper(), sourceId.trim()));
@@ -109,8 +126,9 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     @Override
     public List<KnowledgeSource> listSources(String tenantId) {
         return jdbc.query("""
-                select id, tenant_id, owner_id, title, version, visibility, allowed_departments_json,
-                       allowed_roles_json, allowed_users_json, update_policy, status, created_at, updated_at
+                select id, tenant_id, owner_id, agent_id, title, version, visibility, allowed_departments_json,
+                       allowed_roles_json, allowed_users_json, update_policy, source_type, source_uri,
+                       index_status, indexed_at, status, created_at, updated_at
                 from ha_knowledge_sources
                 where tenant_id = ?
                 order by updated_at desc, id asc
@@ -125,8 +143,8 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         }
         jdbc.batchUpdate("""
                 insert into ha_knowledge_chunks (
-                    id, source_id, tenant_id, title, version, chunk_index, content, tokens_json
-                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, source_id, tenant_id, title, version, chunk_index, content, tokens_json, source_type, source_uri
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, chunks.stream()
                 .map(chunk -> new Object[] {
                         chunk.id(),
@@ -136,7 +154,9 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
                         chunk.version(),
                         chunk.chunkIndex(),
                         chunk.content(),
-                        JsonColumn.write(objectMapper, chunk.tokens())
+                        JsonColumn.write(objectMapper, chunk.tokens()),
+                        chunk.sourceType().name(),
+                        chunk.sourceUri()
                 })
                 .toList());
     }
@@ -144,7 +164,7 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     @Override
     public List<KnowledgeChunk> listChunks(String tenantId) {
         return jdbc.query("""
-                select id, source_id, tenant_id, title, version, chunk_index, content, tokens_json
+                select id, source_id, tenant_id, title, version, chunk_index, content, tokens_json, source_type, source_uri
                 from ha_knowledge_chunks
                 where tenant_id = ?
                 order by source_id asc, chunk_index asc
@@ -209,11 +229,83 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
                 """, feedbackMapper(), tenantId);
     }
 
+    @Override
+    public PersonalMemoryRecord saveMemory(PersonalMemoryRecord memory) {
+        int updated = jdbc.update("""
+                update ha_personal_memories
+                set tenant_id = ?, owner_id = ?, agent_id = ?, session_id = ?, layer_name = ?,
+                    title = ?, content = ?, status = ?, source_id = ?, created_at = ?, updated_at = ?
+                where id = ?
+                """,
+                memory.tenantId(),
+                memory.ownerId(),
+                memory.agentId(),
+                memory.sessionId(),
+                memory.layer().name(),
+                memory.title(),
+                memory.content(),
+                memory.status().name(),
+                memory.sourceId().orElse(""),
+                timestamp(memory.createdAt()),
+                timestamp(memory.updatedAt()),
+                memory.id());
+        if (updated == 0) {
+            jdbc.update("""
+                    insert into ha_personal_memories (
+                        id, tenant_id, owner_id, agent_id, session_id, layer_name, title, content,
+                        status, source_id, created_at, updated_at
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    memory.id(),
+                    memory.tenantId(),
+                    memory.ownerId(),
+                    memory.agentId(),
+                    memory.sessionId(),
+                    memory.layer().name(),
+                    memory.title(),
+                    memory.content(),
+                    memory.status().name(),
+                    memory.sourceId().orElse(""),
+                    timestamp(memory.createdAt()),
+                    timestamp(memory.updatedAt()));
+        }
+        return memory;
+    }
+
+    @Override
+    public Optional<PersonalMemoryRecord> findMemory(String memoryId) {
+        if (memoryId == null || memoryId.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable(jdbc.queryForObject("""
+                    select id, tenant_id, owner_id, agent_id, session_id, layer_name, title, content,
+                           status, source_id, created_at, updated_at
+                    from ha_personal_memories
+                    where id = ?
+                    """, memoryMapper(), memoryId.trim()));
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public List<PersonalMemoryRecord> listMemories(String tenantId, String ownerId, String agentId) {
+        return jdbc.query("""
+                select id, tenant_id, owner_id, agent_id, session_id, layer_name, title, content,
+                       status, source_id, created_at, updated_at
+                from ha_personal_memories
+                where tenant_id = ? and owner_id = ? and agent_id = ?
+                order by updated_at desc, id asc
+                """, memoryMapper(), tenantId, ownerId, agentId);
+    }
+
     private RowMapper<KnowledgeSource> sourceMapper() {
         return (rs, rowNum) -> new KnowledgeSource(
                 rs.getString("id"),
                 rs.getString("tenant_id"),
                 rs.getString("owner_id"),
+                rs.getString("agent_id"),
                 rs.getString("title"),
                 rs.getString("version"),
                 KnowledgeVisibility.valueOf(rs.getString("visibility")),
@@ -221,6 +313,10 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
                 JsonColumn.read(objectMapper, rs.getString("allowed_roles_json"), STRING_SET, Set.of()),
                 JsonColumn.read(objectMapper, rs.getString("allowed_users_json"), STRING_SET, Set.of()),
                 rs.getString("update_policy"),
+                KnowledgeSourceType.valueOf(rs.getString("source_type")),
+                rs.getString("source_uri"),
+                KnowledgeIndexStatus.valueOf(rs.getString("index_status")),
+                instantNullable(rs, "indexed_at"),
                 KnowledgeSourceStatus.valueOf(rs.getString("status")),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"));
@@ -235,7 +331,9 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
                 rs.getString("version"),
                 rs.getInt("chunk_index"),
                 rs.getString("content"),
-                JsonColumn.read(objectMapper, rs.getString("tokens_json"), STRING_SET, Set.of()));
+                JsonColumn.read(objectMapper, rs.getString("tokens_json"), STRING_SET, Set.of()),
+                KnowledgeSourceType.valueOf(rs.getString("source_type")),
+                rs.getString("source_uri"));
     }
 
     private static RowMapper<RagMetric> metricMapper() {
@@ -260,12 +358,41 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
                 instant(rs, "created_at"));
     }
 
+    private static RowMapper<PersonalMemoryRecord> memoryMapper() {
+        return (rs, rowNum) -> new PersonalMemoryRecord(
+                rs.getString("id"),
+                rs.getString("tenant_id"),
+                rs.getString("owner_id"),
+                rs.getString("agent_id"),
+                rs.getString("session_id"),
+                MemoryLayer.valueOf(rs.getString("layer_name")),
+                rs.getString("title"),
+                rs.getString("content"),
+                MemoryWriteStatus.valueOf(rs.getString("status")),
+                optional(rs.getString("source_id")),
+                instant(rs, "created_at"),
+                instant(rs, "updated_at"));
+    }
+
     private static Timestamp timestamp(Instant instant) {
         return Timestamp.from(instant == null ? Instant.now() : instant);
+    }
+
+    private static Timestamp timestampNullable(Instant instant) {
+        return instant == null ? null : Timestamp.from(instant);
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
         Timestamp timestamp = rs.getTimestamp(column);
         return timestamp == null ? Instant.EPOCH : timestamp.toInstant();
+    }
+
+    private static Instant instantNullable(ResultSet rs, String column) throws SQLException {
+        Timestamp timestamp = rs.getTimestamp(column);
+        return timestamp == null ? null : timestamp.toInstant();
+    }
+
+    private static Optional<String> optional(String value) {
+        return value == null || value.isBlank() ? Optional.empty() : Optional.of(value);
     }
 }

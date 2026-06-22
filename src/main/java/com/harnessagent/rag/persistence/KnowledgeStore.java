@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import com.harnessagent.rag.domain.KnowledgeChunk;
 import com.harnessagent.rag.domain.KnowledgeSource;
+import com.harnessagent.rag.domain.PersonalMemoryRecord;
 import com.harnessagent.rag.domain.RagFeedback;
 import com.harnessagent.rag.domain.RagMetric;
 
@@ -28,4 +29,10 @@ public interface KnowledgeStore {
     void recordFeedback(RagFeedback feedback);
 
     List<RagFeedback> listFeedback(String tenantId);
+
+    PersonalMemoryRecord saveMemory(PersonalMemoryRecord memory);
+
+    Optional<PersonalMemoryRecord> findMemory(String memoryId);
+
+    List<PersonalMemoryRecord> listMemories(String tenantId, String ownerId, String agentId);
 }

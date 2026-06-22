@@ -120,6 +120,7 @@ class DurablePersistenceHealthServiceTest {
                 .setType(EmbeddedDatabaseType.H2)
                 .generateUniqueName(true)
                 .addScript("classpath:db/migration/V1__durable_persistence.sql")
+                .addScript("classpath:db/migration/V7__personal_memory_rag_metadata.sql")
                 .build();
     }
 

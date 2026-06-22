@@ -10,9 +10,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import com.harnessagent.rag.domain.KnowledgeChunk;
 import com.harnessagent.rag.domain.KnowledgeCitation;
+import com.harnessagent.rag.domain.KnowledgeIndexStatus;
 import com.harnessagent.rag.domain.KnowledgeSource;
 import com.harnessagent.rag.domain.KnowledgeSourceRegistration;
 import com.harnessagent.rag.domain.KnowledgeSourceStatus;
+import com.harnessagent.rag.domain.KnowledgeSourceType;
 import com.harnessagent.rag.domain.KnowledgeVisibility;
 import com.harnessagent.rag.domain.RagFeedback;
 import com.harnessagent.rag.domain.RagMetric;
@@ -50,6 +52,7 @@ public class KnowledgeService {
                 UUID.randomUUID().toString(),
                 registration.tenantId().trim(),
                 registration.ownerId().trim(),
+                registration.agentId().trim(),
                 registration.title().trim(),
                 defaultString(registration.version(), "v1"),
                 registration.visibility() == null ? KnowledgeVisibility.RESTRICTED : registration.visibility(),
@@ -57,6 +60,10 @@ public class KnowledgeService {
                 safeSet(registration.allowedRoles()),
                 safeSet(registration.allowedUsers()),
                 defaultString(registration.updatePolicy(), "manual"),
+                registration.sourceType() == null ? KnowledgeSourceType.INLINE_TEXT : registration.sourceType(),
+                defaultString(registration.sourceUri(), ""),
+                KnowledgeIndexStatus.PENDING,
+                null,
                 KnowledgeSourceStatus.ACTIVE,
                 now,
                 now);
@@ -88,15 +95,18 @@ public class KnowledgeService {
                         source.version(),
                         index,
                         rawChunks.get(index),
-                        tokenizer.tokenize(rawChunks.get(index))))
+                        tokenizer.tokenize(rawChunks.get(index)),
+                        source.sourceType(),
+                        source.sourceUri()))
                 .toList();
         store.saveChunks(source.id(), chunks);
+        KnowledgeSource indexed = store.saveSource(source.withIndexStatus(KnowledgeIndexStatus.INDEXED, Instant.now()));
         log.info(
                 "rag document ingested tenantId={} sourceId={} chunkCount={}",
                 source.tenantId(),
                 source.id(),
                 chunks.size());
-        return source;
+        return indexed;
     }
 
     public KnowledgeRetrievalResult retrieve(RetrievalPrincipal principal, String query, int limit) {
@@ -162,7 +172,8 @@ public class KnowledgeService {
         KnowledgeSource source = store.findSource(sourceId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown knowledge source: " + sourceId));
         store.removeChunks(sourceId);
-        KnowledgeSource revoked = store.saveSource(source.withStatus(KnowledgeSourceStatus.REVOKED));
+        KnowledgeSource revoked = store.saveSource(source.withStatus(KnowledgeSourceStatus.REVOKED)
+                .withIndexStatus(KnowledgeIndexStatus.DELETED, Instant.now()));
         log.info("rag source revoked tenantId={} sourceId={}", revoked.tenantId(), revoked.id());
         return revoked;
     }
@@ -171,7 +182,8 @@ public class KnowledgeService {
         KnowledgeSource source = store.findSource(sourceId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown knowledge source: " + sourceId));
         store.removeChunks(sourceId);
-        KnowledgeSource deleted = store.saveSource(source.withStatus(KnowledgeSourceStatus.DELETED));
+        KnowledgeSource deleted = store.saveSource(source.withStatus(KnowledgeSourceStatus.DELETED)
+                .withIndexStatus(KnowledgeIndexStatus.DELETED, Instant.now()));
         log.info("rag source deleted tenantId={} sourceId={}", deleted.tenantId(), deleted.id());
         return deleted;
     }
@@ -238,6 +250,7 @@ public class KnowledgeService {
         return store.findSource(sourceId)
                 .filter(source -> source.status() == KnowledgeSourceStatus.ACTIVE)
                 .filter(source -> source.tenantId().equals(principal.tenantId()))
+                .filter(source -> source.agentId().isBlank() || source.agentId().equals(principal.agentId()))
                 .filter(source -> source.visibility() == KnowledgeVisibility.PUBLIC
                         || source.ownerId().equals(principal.userId())
                         || source.allowedUsers().contains(principal.userId())
@@ -317,7 +330,9 @@ public class KnowledgeService {
                             chunk.title(),
                             chunk.version(),
                             chunk.chunkIndex(),
-                            chunk.id()),
+                            chunk.id(),
+                            chunk.sourceType(),
+                            chunk.sourceUri()),
                     chunk.content(),
                     score,
                     keywordScore,

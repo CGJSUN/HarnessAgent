@@ -10,9 +10,11 @@ import com.harnessagent.rag.application.KnowledgeService;
 import com.harnessagent.rag.application.TextChunker;
 import com.harnessagent.rag.application.TextTokenizer;
 import com.harnessagent.rag.domain.KnowledgeCitation;
+import com.harnessagent.rag.domain.KnowledgeIndexStatus;
 import com.harnessagent.rag.domain.KnowledgeSource;
 import com.harnessagent.rag.domain.KnowledgeSourceRegistration;
 import com.harnessagent.rag.domain.KnowledgeSourceStatus;
+import com.harnessagent.rag.domain.KnowledgeSourceType;
 import com.harnessagent.rag.domain.KnowledgeVisibility;
 import com.harnessagent.rag.domain.RagFeedback;
 import com.harnessagent.rag.domain.RagMetric;
@@ -47,6 +49,41 @@ class KnowledgeServiceTest {
         assertThat(citation.sourceId()).isEqualTo(source.id());
         assertThat(citation.title()).isEqualTo("员工制度");
         assertThat(citation.version()).isEqualTo("v1");
+    }
+
+    @Test
+    void tracksPersonalSourceMetadataIndexStatusAndCitationOrigin() {
+        KnowledgeSource source = service.ingestDocument(new KnowledgeDocumentInput(
+                new KnowledgeSourceRegistration(
+                        "personal",
+                        "owner-a",
+                        "",
+                        "旅行计划",
+                        "2026-06",
+                        KnowledgeVisibility.RESTRICTED,
+                        Set.of(),
+                        Set.of(),
+                        Set.of(),
+                        "manual",
+                        KnowledgeSourceType.URL,
+                        "https://example.test/travel-plan"),
+                "京都行程第一天安排伏见稻荷和清水寺。"));
+
+        KnowledgeRetrievalResult result = service.retrieve(
+                principal("personal", "owner-a", Set.of(), Set.of()),
+                "京都 清水寺",
+                3);
+
+        assertThat(source.sourceType()).isEqualTo(KnowledgeSourceType.URL);
+        assertThat(source.sourceUri()).isEqualTo("https://example.test/travel-plan");
+        assertThat(source.indexStatus()).isEqualTo(KnowledgeIndexStatus.INDEXED);
+        assertThat(source.indexedAt()).isNotNull();
+        assertThat(result.answered()).isTrue();
+        assertThat(result.citations()).singleElement()
+                .satisfies(citation -> {
+                    assertThat(citation.sourceUri()).isEqualTo("https://example.test/travel-plan");
+                    assertThat(citation.sourceType()).isEqualTo(KnowledgeSourceType.URL);
+                });
     }
 
     @Test

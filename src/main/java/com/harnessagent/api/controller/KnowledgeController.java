@@ -4,12 +4,17 @@ import com.harnessagent.api.ApiIdentityResolver;
 import com.harnessagent.api.request.KnowledgeDocumentRequest;
 import com.harnessagent.api.request.KnowledgeRetrievalRequest;
 import com.harnessagent.api.request.KnowledgeSourceRequest;
+import com.harnessagent.api.request.MemoryWriteRequest;
 import com.harnessagent.api.request.RagFeedbackRequest;
 import com.harnessagent.rag.application.KnowledgeDocumentInput;
+import com.harnessagent.rag.application.MemoryWriteCommand;
 import com.harnessagent.rag.retrieval.KnowledgeRetrievalResult;
 import com.harnessagent.rag.application.KnowledgeService;
+import com.harnessagent.rag.application.PersonalMemoryService;
 import com.harnessagent.rag.domain.KnowledgeSource;
 import com.harnessagent.rag.domain.KnowledgeSourceRegistration;
+import com.harnessagent.rag.domain.PersonalDataExport;
+import com.harnessagent.rag.domain.PersonalMemoryRecord;
 import com.harnessagent.rag.domain.RagFeedback;
 import com.harnessagent.rag.domain.RagMetric;
 import com.harnessagent.rag.domain.RetrievalPrincipal;
@@ -32,10 +37,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
+    private final PersonalMemoryService personalMemoryService;
     private final ApiIdentityResolver identityResolver;
 
-    public KnowledgeController(KnowledgeService knowledgeService, ApiIdentityResolver identityResolver) {
+    public KnowledgeController(
+            KnowledgeService knowledgeService,
+            PersonalMemoryService personalMemoryService,
+            ApiIdentityResolver identityResolver) {
         this.knowledgeService = knowledgeService;
+        this.personalMemoryService = personalMemoryService;
         this.identityResolver = identityResolver;
     }
 
@@ -60,15 +70,12 @@ public class KnowledgeController {
     public KnowledgeRetrievalResult retrieve(
             @RequestHeader Map<String, String> headers,
             @RequestBody KnowledgeRetrievalRequest request) {
-        SecurityPrincipal identity = identityResolver.resolve(
-                headers,
-                request.tenantId(),
-                request.userId(),
-                request.roles(),
-                request.departments());
+        SecurityPrincipal identity = identityResolver.resolveTrusted(headers, request.tenantId(), request.userId());
+        String agentId = identityResolver.resolveTrustedAgentId(headers, request.agentId());
         RetrievalPrincipal principal = new RetrievalPrincipal(
                 identity.tenantId(),
                 identity.userId(),
+                agentId,
                 identity.departments(),
                 identity.roles());
         return knowledgeService.retrieve(principal, request.query(), request.limit());
@@ -82,6 +89,81 @@ public class KnowledgeController {
     @DeleteMapping("/sources/{sourceId}")
     public KnowledgeSource deleteSource(@PathVariable String sourceId) {
         return knowledgeService.deleteSource(sourceId);
+    }
+
+    @GetMapping("/memory")
+    public List<PersonalMemoryRecord> listMemories(
+            @RequestHeader Map<String, String> headers,
+            @RequestParam(required = false) String tenantId,
+            @RequestParam(required = false) String ownerId,
+            @RequestParam String agentId) {
+        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
+        return personalMemoryService.listMemories(identity.tenantId(), identity.userId(), trustedAgentId);
+    }
+
+    @PostMapping("/memory")
+    public PersonalMemoryRecord requestMemoryWrite(
+            @RequestHeader Map<String, String> headers,
+            @RequestBody MemoryWriteRequest request) {
+        SecurityPrincipal identity = resolveOwner(headers, request.tenantId(), request.ownerId());
+        String agentId = identityResolver.resolveTrustedAgentId(headers, request.agentId());
+        return personalMemoryService.requestWrite(new MemoryWriteCommand(
+                identity.tenantId(),
+                identity.userId(),
+                agentId,
+                request.sessionId(),
+                request.layer(),
+                request.title(),
+                request.content(),
+                request.requireConfirmation()));
+    }
+
+    @PostMapping("/memory/{memoryId}/confirm")
+    public PersonalMemoryRecord confirmMemoryWrite(
+            @RequestHeader Map<String, String> headers,
+            @PathVariable String memoryId,
+            @RequestParam(required = false) String tenantId,
+            @RequestParam(required = false) String ownerId,
+            @RequestParam String agentId) {
+        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
+        return personalMemoryService.confirmWrite(memoryId, identity.tenantId(), identity.userId(), trustedAgentId);
+    }
+
+    @PostMapping("/memory/{memoryId}/reject")
+    public PersonalMemoryRecord rejectMemoryWrite(
+            @RequestHeader Map<String, String> headers,
+            @PathVariable String memoryId,
+            @RequestParam(required = false) String tenantId,
+            @RequestParam(required = false) String ownerId,
+            @RequestParam String agentId) {
+        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
+        return personalMemoryService.rejectWrite(memoryId, identity.tenantId(), identity.userId(), trustedAgentId);
+    }
+
+    @DeleteMapping("/memory/{memoryId}")
+    public PersonalMemoryRecord deleteMemory(
+            @RequestHeader Map<String, String> headers,
+            @PathVariable String memoryId,
+            @RequestParam(required = false) String tenantId,
+            @RequestParam(required = false) String ownerId,
+            @RequestParam String agentId) {
+        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
+        return personalMemoryService.deleteMemory(memoryId, identity.tenantId(), identity.userId(), trustedAgentId);
+    }
+
+    @GetMapping("/export")
+    public PersonalDataExport exportPersonalData(
+            @RequestHeader Map<String, String> headers,
+            @RequestParam(required = false) String tenantId,
+            @RequestParam(required = false) String ownerId,
+            @RequestParam String agentId) {
+        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
+        return personalMemoryService.exportPersonalData(identity.tenantId(), identity.userId(), trustedAgentId);
     }
 
     @GetMapping("/metrics")
@@ -108,29 +190,39 @@ public class KnowledgeController {
         return new KnowledgeSourceRegistration(
                 request.tenantId(),
                 request.ownerId(),
+                request.agentId(),
                 request.title(),
                 request.version(),
                 request.visibility(),
                 safeSet(request.allowedDepartments()),
                 safeSet(request.allowedRoles()),
                 safeSet(request.allowedUsers()),
-                request.updatePolicy());
+                request.updatePolicy(),
+                request.sourceType(),
+                request.sourceUri());
     }
 
     private static KnowledgeSourceRegistration toRegistration(KnowledgeDocumentRequest request) {
         return new KnowledgeSourceRegistration(
                 request.tenantId(),
                 request.ownerId(),
+                request.agentId(),
                 request.title(),
                 request.version(),
                 request.visibility(),
                 safeSet(request.allowedDepartments()),
                 safeSet(request.allowedRoles()),
                 safeSet(request.allowedUsers()),
-                request.updatePolicy());
+                request.updatePolicy(),
+                request.sourceType(),
+                request.sourceUri());
     }
 
     private static Set<String> safeSet(Set<String> input) {
         return input == null ? Set.of() : input;
+    }
+
+    private SecurityPrincipal resolveOwner(Map<String, String> headers, String tenantId, String ownerId) {
+        return identityResolver.resolveTrusted(headers, tenantId, ownerId);
     }
 }

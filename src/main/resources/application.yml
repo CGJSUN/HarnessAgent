@@ -15,6 +15,8 @@ harness-agent:
   default-provider: echo
   state:
     local-directory: .harness-agent/sessions
+  memory-rag:
+    provider: local
   agents:
     personal-assistant:
       name: personal-assistant

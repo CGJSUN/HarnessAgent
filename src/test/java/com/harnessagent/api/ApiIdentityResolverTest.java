@@ -85,4 +85,21 @@ class ApiIdentityResolverTest {
         assertThat(principal.userId()).isEqualTo("alice");
         assertThat(principal.roles()).containsExactly("local-user");
     }
+
+    @Test
+    void trustedIdentityRequiresHeaders() {
+        assertThatThrownBy(() -> resolver.resolveTrusted(Map.of(), "tenant-a", "user-a"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Authenticated tenantId is required");
+    }
+
+    @Test
+    void trustedAgentRequiresHeaderMatch() {
+        assertThat(resolver.resolveTrustedAgentId(Map.of("X-Agent-Id", "agent-a"), "agent-a"))
+                .isEqualTo("agent-a");
+
+        assertThatThrownBy(() -> resolver.resolveTrustedAgentId(Map.of("X-Agent-Id", "agent-a"), "agent-b"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("agentId");
+    }
 }

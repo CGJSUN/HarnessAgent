@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +28,7 @@ import com.harnessagent.chat.domain.ChatExecutionSummary;
 import com.harnessagent.chat.domain.ChatResult;
 import com.harnessagent.chat.domain.ContentBlock;
 import com.harnessagent.chat.application.ChatService;
+import com.harnessagent.rag.application.PersonalMemoryService;
 import com.harnessagent.rag.domain.KnowledgeCitation;
 import com.harnessagent.security.domain.IdentityProviderType;
 import com.harnessagent.security.domain.SecurityPrincipal;
@@ -153,6 +155,57 @@ class ApiContractTest {
     }
 
     @Test
+    void knowledgeControllerRejectsMemoryRequestIdentityMismatch() {
+        KnowledgeController controller = new KnowledgeController(
+                mock(com.harnessagent.rag.application.KnowledgeService.class),
+                mock(PersonalMemoryService.class),
+                new ApiIdentityResolver());
+
+        assertThatThrownBy(() -> controller.listMemories(
+                        Map.of("X-Tenant-Id", "personal", "X-User-Id", "owner-a"),
+                        "personal",
+                        "owner-b",
+                        "agent-a"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("does not match");
+    }
+
+    @Test
+    void knowledgeControllerRequiresTrustedIdentityForPersonalMemoryExport() {
+        KnowledgeController controller = new KnowledgeController(
+                mock(com.harnessagent.rag.application.KnowledgeService.class),
+                mock(PersonalMemoryService.class),
+                new ApiIdentityResolver());
+
+        assertThatThrownBy(() -> controller.exportPersonalData(
+                        Map.of(),
+                        "personal",
+                        "owner-b",
+                        "agent-b"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Authenticated tenantId is required");
+    }
+
+    @Test
+    void knowledgeControllerRejectsMemoryAgentMismatch() {
+        KnowledgeController controller = new KnowledgeController(
+                mock(com.harnessagent.rag.application.KnowledgeService.class),
+                mock(PersonalMemoryService.class),
+                new ApiIdentityResolver());
+
+        assertThatThrownBy(() -> controller.listMemories(
+                        Map.of(
+                                "X-Tenant-Id", "personal",
+                                "X-User-Id", "owner-a",
+                                "X-Agent-Id", "agent-a"),
+                        "personal",
+                        "owner-a",
+                        "agent-b"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("agentId");
+    }
+
+    @Test
     void streamEventPayloadKeepsClientVisibleFields() throws Exception {
         KnowledgeCitation citation = new KnowledgeCitation("source-a", "Title", "v1", 0, "chunk-a");
         StreamEventResponse response = new StreamEventResponse(
@@ -251,6 +304,12 @@ class ApiContractTest {
         assertPostMapping(KnowledgeController.class, "retrieve", new String[] {"/retrieve"});
         assertPostMapping(KnowledgeController.class, "revokeSource", new String[] {"/sources/{sourceId}/revoke"});
         assertDeleteMapping(KnowledgeController.class, "deleteSource", new String[] {"/sources/{sourceId}"});
+        assertGetMapping(KnowledgeController.class, "listMemories", new String[] {"/memory"});
+        assertPostMapping(KnowledgeController.class, "requestMemoryWrite", new String[] {"/memory"});
+        assertPostMapping(KnowledgeController.class, "confirmMemoryWrite", new String[] {"/memory/{memoryId}/confirm"});
+        assertPostMapping(KnowledgeController.class, "rejectMemoryWrite", new String[] {"/memory/{memoryId}/reject"});
+        assertDeleteMapping(KnowledgeController.class, "deleteMemory", new String[] {"/memory/{memoryId}"});
+        assertGetMapping(KnowledgeController.class, "exportPersonalData", new String[] {"/export"});
         assertGetMapping(KnowledgeController.class, "listMetrics", new String[] {"/metrics"});
         assertPostMapping(KnowledgeController.class, "recordFeedback", new String[] {"/feedback"});
         assertGetMapping(KnowledgeController.class, "listFeedback", new String[] {"/feedback"});

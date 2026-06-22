@@ -57,6 +57,9 @@ export async function parseApiError(response: Response): Promise<ApiError> {
     response.status === 403 ||
     normalized.includes("role is required") ||
     normalized.includes("authenticated identity") ||
+    normalized.includes("authenticated tenant") ||
+    normalized.includes("authenticated user") ||
+    normalized.includes("authenticated agent") ||
     normalized.includes("permission") ||
     normalized.includes("not authorized") ||
     normalized.includes("access denied");

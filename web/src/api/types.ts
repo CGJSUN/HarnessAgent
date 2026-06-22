@@ -22,6 +22,8 @@ export interface KnowledgeCitation {
   version: string;
   chunkIndex: number;
   chunkId: string;
+  sourceType?: "INLINE_TEXT" | "LOCAL_FILE" | "LOCAL_DIRECTORY" | "URL" | "MEMORY" | string;
+  sourceUri?: string;
 }
 
 export type MessageRole = "USER" | "ASSISTANT" | "SYSTEM" | "TOOL";
@@ -214,6 +216,7 @@ export interface ToolExecutionResult {
 
 export interface KnowledgeSourceView {
   id: string;
+  agentId?: string;
   title: string;
   version: string;
   visibility: "PUBLIC" | "RESTRICTED" | string;
@@ -221,7 +224,10 @@ export interface KnowledgeSourceView {
   allowedRoles: string[];
   allowedUsers: string[];
   status: "ACTIVE" | "REVOKED" | "DELETED" | string;
+  sourceType?: "INLINE_TEXT" | "LOCAL_FILE" | "LOCAL_DIRECTORY" | "URL" | "MEMORY" | string;
+  sourceUri?: string;
   indexStatus: string;
+  indexedAt?: string | null;
   lastSyncResult: string;
   updatedAt: string;
 }
@@ -230,6 +236,7 @@ export interface KnowledgeSource {
   id: string;
   tenantId: string;
   ownerId: string;
+  agentId: string;
   title: string;
   version: string;
   visibility: "PUBLIC" | "RESTRICTED" | string;
@@ -237,9 +244,64 @@ export interface KnowledgeSource {
   allowedRoles: string[];
   allowedUsers: string[];
   updatePolicy: string;
+  sourceType: "INLINE_TEXT" | "LOCAL_FILE" | "LOCAL_DIRECTORY" | "URL" | "MEMORY" | string;
+  sourceUri: string;
+  indexStatus: "PENDING" | "INDEXING" | "INDEXED" | "FAILED" | "DELETED" | string;
+  indexedAt?: string | null;
   status: "ACTIVE" | "REVOKED" | "DELETED" | string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type MemoryLayer = "SESSION_CONTEXT" | "AGENT_MEMORY_FILE" | "FACT_LEDGER" | string;
+
+export type MemoryWriteStatus = "PENDING_CONFIRMATION" | "CONFIRMED" | "REJECTED" | "DELETED" | string;
+
+export interface MemoryWriteRequest {
+  tenantId: string;
+  ownerId: string;
+  agentId: string;
+  sessionId: string;
+  layer: MemoryLayer;
+  title: string;
+  content: string;
+  requireConfirmation: boolean;
+}
+
+export interface PersonalMemoryRecord {
+  id: string;
+  tenantId: string;
+  ownerId: string;
+  agentId: string;
+  sessionId: string;
+  layer: MemoryLayer;
+  title: string;
+  content: string;
+  status: MemoryWriteStatus;
+  sourceId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeIndexMetadata {
+  sourceId: string;
+  agentId: string;
+  sourceType: KnowledgeSource["sourceType"];
+  sourceUri: string;
+  version: string;
+  indexStatus: KnowledgeSource["indexStatus"];
+  sourceStatus: KnowledgeSource["status"];
+  indexedAt?: string | null;
+}
+
+export interface PersonalDataExport {
+  tenantId: string;
+  ownerId: string;
+  agentId: string;
+  memories: PersonalMemoryRecord[];
+  knowledgeSources: KnowledgeSource[];
+  indexMetadata: KnowledgeIndexMetadata[];
+  citationRecords: KnowledgeCitation[];
 }
 
 export interface SkillVersion {
