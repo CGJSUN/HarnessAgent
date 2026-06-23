@@ -17,6 +17,7 @@ import com.harnessagent.api.controller.KnowledgeController;
 import com.harnessagent.api.controller.OrchestrationController;
 import com.harnessagent.api.controller.ReleaseController;
 import com.harnessagent.api.controller.SessionController;
+import com.harnessagent.api.controller.SkillController;
 import com.harnessagent.api.controller.ToolController;
 import com.harnessagent.api.request.ChatRequest;
 import com.harnessagent.api.request.OrchestrationApiRequest;
@@ -423,6 +424,16 @@ class ApiContractTest {
         assertPostMapping(OrchestrationController.class, "route", new String[] {"/route"});
         assertGetMapping(OrchestrationController.class, "asTool", new String[] {"/agents/{agentId}/tool"});
         assertGetMapping(OrchestrationController.class, "traces", new String[] {"/traces"});
+
+        assertRootMapping(SkillController.class, "/api/skills");
+        assertGetMapping(SkillController.class, "listSkills", new String[0]);
+        assertPostMapping(SkillController.class, "refreshLocalRepository", new String[] {"/refresh-local"});
+        assertPostMapping(SkillController.class, "validateLocalSkill", new String[] {"/validate-local"});
+        assertPatchMapping(SkillController.class, "enable", new String[] {"/{skillName}/{version}/enable"});
+        assertPatchMapping(SkillController.class, "disable", new String[] {"/{skillName}/{version}/disable"});
+        assertPatchMapping(SkillController.class, "upgrade", new String[] {"/{skillName}/{version}/upgrade"});
+        assertPatchMapping(SkillController.class, "rollback", new String[] {"/{skillName}/{version}/rollback"});
+        assertPatchMapping(SkillController.class, "lock", new String[] {"/{skillName}/{version}/lock"});
     }
 
     @Test
