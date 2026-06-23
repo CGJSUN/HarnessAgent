@@ -1,14 +1,15 @@
 import {
-  Activity,
   Bot,
-  ClipboardCheck,
-  GitBranch,
+  Brain,
+  Folder,
+  ListChecks,
   MessageSquare,
-  ShieldCheck
+  SearchCode,
+  Wrench
 } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type RouteId = "chat" | "admin" | "operations" | "audit" | "release" | "orchestration";
+export type RouteId = "chat" | "tasks" | "files" | "knowledge" | "tools" | "agent" | "trace";
 
 export interface NavigationItem {
   id: RouteId;
@@ -20,29 +21,32 @@ export interface NavigationItem {
 
 const roleSets: Record<RouteId, string[]> = {
   chat: [],
-  admin: ["admin"],
-  operations: ["admin", "ops"],
-  audit: ["admin", "auditor"],
-  release: ["admin", "ops", "auditor"],
-  orchestration: ["admin", "ops", "auditor"]
+  tasks: [],
+  files: [],
+  knowledge: [],
+  tools: [],
+  agent: [],
+  trace: []
 };
 
 const labels: Record<RouteId, string> = {
   chat: "Chat",
-  admin: "Admin",
-  operations: "Operations",
-  audit: "Audit",
-  release: "Release",
-  orchestration: "Traces"
+  tasks: "Tasks",
+  files: "Files",
+  knowledge: "Knowledge",
+  tools: "Tools",
+  agent: "Agent",
+  trace: "Trace"
 };
 
 const icons: Record<RouteId, NavigationItem["Icon"]> = {
   chat: MessageSquare,
-  admin: Bot,
-  operations: Activity,
-  audit: ShieldCheck,
-  release: ClipboardCheck,
-  orchestration: GitBranch
+  tasks: ListChecks,
+  files: Folder,
+  knowledge: Brain,
+  tools: Wrench,
+  agent: Bot,
+  trace: SearchCode
 };
 
 export function canAccess(requiredRoles: string[], userRoles: string[]): boolean {

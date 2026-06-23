@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play, RefreshCcw, Send, Trash2, X } from "lucide-react";
+import { Paperclip, Pause, Play, RefreshCcw, Send, Trash2, X } from "lucide-react";
 import { ApiClient, ApiClientError } from "../api/client";
 import type {
   ChatMessage,
+  ContentBlock,
   LocalIdentity,
   SessionSummary,
+  StreamEvent,
   ToolConfirmationView,
   ToolStatusView,
+  WorkspaceFileView,
   UserConsoleView
 } from "../api/types";
 import {
@@ -22,29 +25,45 @@ import {
 } from "../components/common";
 import { formatDateTime } from "../lib/format";
 
-const DEFAULT_AGENT_ID = "enterprise-assistant";
+const DEFAULT_AGENT_ID = "personal-assistant";
 
 function nextSessionId(identity: LocalIdentity) {
   return `session-${identity.userId || "user"}-${Date.now()}`;
 }
 
-function localMessage(role: ChatMessage["role"], content: string, status?: ChatMessage["status"]): ChatMessage {
+function localMessage(
+  role: ChatMessage["role"],
+  content: string,
+  status?: ChatMessage["status"],
+  contentBlocks?: ContentBlock[]
+): ChatMessage {
   return {
     id: crypto.randomUUID(),
     role,
     content,
-    contentBlocks: [{ type: "TEXT", text: content }],
+    contentBlocks: contentBlocks ?? [{ type: "TEXT", text: content }],
     createdAt: new Date().toISOString(),
     status
   };
 }
 
-export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: LocalIdentity }) {
+export function ChatWorkspace({
+  api,
+  identity,
+  onOpenFileReference
+}: {
+  api: ApiClient;
+  identity: LocalIdentity;
+  onOpenFileReference?: (uri: string) => void;
+}) {
   const [agentId, setAgentId] = useState(DEFAULT_AGENT_ID);
   const [sessionId, setSessionId] = useState(() => nextSessionId(identity));
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [consoleView, setConsoleView] = useState<UserConsoleView | null>(null);
+  const [attachments, setAttachments] = useState<WorkspaceFileView[]>([]);
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [subagentStatus, setSubagentStatus] = useState("idle");
   const [message, setMessage] = useState("");
   const [knowledgeEnabled, setKnowledgeEnabled] = useState(true);
   const [knowledgeLimit, setKnowledgeLimit] = useState(4);
@@ -130,11 +149,25 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
     if (!trimmed || streaming) {
       return;
     }
-    const userMessage = localMessage("USER", trimmed, "done");
+    const attachmentBlocks: ContentBlock[] = attachments.map(file => ({
+      type: "FILE",
+      uri: file.uri,
+      mimeType: file.mimeType,
+      title: file.fileName,
+      metadata: { relativePath: file.relativePath, size: file.size }
+    }));
+    const userMessage = localMessage(
+      "USER",
+      trimmed,
+      "done",
+      [{ type: "TEXT", text: trimmed }, ...attachmentBlocks]
+    );
     const assistantMessage = localMessage("ASSISTANT", "", "streaming");
     activeAssistantId.current = assistantMessage.id;
     setMessages(previous => [...previous, userMessage, assistantMessage]);
     setMessage("");
+    setAttachments([]);
+    setEvents([]);
     setStreaming(true);
     setRuntimeStatus("started");
     setError(null);
@@ -152,12 +185,16 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
           knowledgeLimit
         },
         event => {
+          setEvents(previous => [...previous.slice(-19), event]);
           setRuntimeStatus(event.type === "done" ? "completed" : event.type);
           if (event.type === "delta") {
             patchActiveAssistant(content => content + event.content, event.terminal ? "done" : "streaming");
           }
           if (event.type === "tool") {
             patchActiveAssistant(content => `${content}\n[tool] ${event.content}`.trim(), "streaming");
+          }
+          if (event.kind === "SUBAGENT_EVENT" || event.type === "subagent") {
+            setSubagentStatus(event.content || "active");
           }
           if (event.type === "error") {
             patchActiveAssistant(content => `${content}\n${event.content}`.trim(), "failed");
@@ -252,6 +289,31 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
     }
   }
 
+  async function attachFiles(files: FileList | null) {
+    if (!files || files.length === 0) {
+      return;
+    }
+    setError(null);
+    setAccessDenied(null);
+    try {
+      const uploaded: WorkspaceFileView[] = [];
+      for (const file of Array.from(files)) {
+        const content = await file.text();
+        uploaded.push(await api.uploadWorkspaceFile({
+          agentId,
+          sessionId,
+          relativePath: `artifacts/${Date.now()}-${safeFileName(file.name)}`,
+          content,
+          mimeType: file.type || "application/octet-stream"
+        }));
+      }
+      setAttachments(previous => [...previous, ...uploaded]);
+      await loadConsole(sessionId);
+    } catch (caught) {
+      handleApiError(caught, setError, setAccessDenied);
+    }
+  }
+
   return (
     <div className="workspace-grid workspace-grid-chat">
       <aside className="sidebar-panel" aria-label="Sessions">
@@ -303,7 +365,9 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
           {messages.length === 0 ? (
             <EmptyState title="No messages" detail="Start a session with a focused request." />
           ) : (
-            messages.map(item => <MessageBubble key={item.id} message={item} />)
+            messages.map(item => (
+              <MessageBubble key={item.id} message={item} onOpenFileReference={onOpenFileReference} />
+            ))
           )}
         </div>
         <div className="composer">
@@ -322,11 +386,30 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
             </label>
             <StatusBadge value={runtimeStatus} />
           </div>
+          {attachments.length ? (
+            <div className="citation-list" aria-label="Attached files">
+              {attachments.map(file => (
+                <button
+                  className="citation-chip citation-chip-button"
+                  key={file.uri}
+                  type="button"
+                  onClick={() => onOpenFileReference?.(file.uri)}
+                >
+                  {file.fileName}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <label className="field field-message">
             <span>Message</span>
             <textarea value={message} rows={3} onChange={event => setMessage(event.target.value)} />
           </label>
           <div className="composer-actions">
+            <label className="command-button">
+              <Paperclip size={16} aria-hidden="true" />
+              Attach
+              <input className="visually-hidden" type="file" multiple onChange={event => void attachFiles(event.target.files)} />
+            </label>
             <button className="command-button command-button-primary" type="button" disabled={streaming} onClick={sendMessage}>
               <Send size={16} aria-hidden="true" />
               Send
@@ -348,6 +431,25 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
         <SectionHeader title="Runtime" />
         <RuntimeTools toolStatus={consoleView?.toolStatus ?? []} prompts={visiblePrompts} onConfirm={confirmTool} />
         <section className="stack">
+          <h3>Subagents</h3>
+          <div className="list-item">
+            <strong>Personal orchestration</strong>
+            <span>{subagentStatus}</span>
+            <StatusBadge value={subagentStatus} />
+          </div>
+        </section>
+        <section className="stack">
+          <h3>Events</h3>
+          {events.length === 0 ? <EmptyState title="No stream events" /> : null}
+          {events.map((event, index) => (
+            <div className="list-item" key={`${event.type}-${index}`}>
+              <strong>{event.kind || event.type}</strong>
+              <span>{event.channel || "USER_VISIBLE"}</span>
+              {event.content ? <span>{event.content}</span> : null}
+            </div>
+          ))}
+        </section>
+        <section className="stack">
           <h3>Citations</h3>
           {(consoleView?.latestCitations ?? []).length === 0 ? (
             <EmptyState title="No citations" detail="Streaming responses keep partial output even when retrieval evidence is absent." />
@@ -358,6 +460,11 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
                 <span>
                   {citation.version} · chunk {citation.chunkIndex}
                 </span>
+                {citation.sourceUri ? (
+                  <button className="command-button" type="button" onClick={() => onOpenFileReference?.(citation.sourceUri || "")}>
+                    Open source
+                  </button>
+                ) : null}
               </div>
             ))
           )}
@@ -367,7 +474,13 @@ export function ChatWorkspace({ api, identity }: { api: ApiClient; identity: Loc
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  onOpenFileReference
+}: {
+  message: ChatMessage;
+  onOpenFileReference?: (uri: string) => void;
+}) {
   const text = message.content || message.contentBlocks?.filter(block => block.type === "TEXT").map(block => block.text).join("\n") || " ";
   const richBlocks = (message.contentBlocks ?? []).filter(block => block.type !== "TEXT");
   return (
@@ -381,9 +494,14 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       {richBlocks.length ? (
         <div className="citation-list">
           {richBlocks.map((block, index) => (
-            <span className="citation-chip" key={`${message.id}-${block.type}-${index}`}>
+            <button
+              className="citation-chip citation-chip-button"
+              key={`${message.id}-${block.type}-${index}`}
+              type="button"
+              onClick={() => block.uri && onOpenFileReference?.(block.uri)}
+            >
               {block.title || block.uri || block.type.toLowerCase()}
-            </span>
+            </button>
           ))}
         </div>
       ) : null}
@@ -391,9 +509,14 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       {message.citations?.length ? (
         <div className="citation-list">
           {message.citations.map(citation => (
-            <span className="citation-chip" key={`${citation.sourceId}-${citation.chunkId}`}>
+            <button
+              className="citation-chip citation-chip-button"
+              key={`${citation.sourceId}-${citation.chunkId}`}
+              type="button"
+              onClick={() => citation.sourceUri && onOpenFileReference?.(citation.sourceUri)}
+            >
               {citation.title} {citation.version}
-            </span>
+            </button>
           ))}
         </div>
       ) : null}
@@ -450,6 +573,10 @@ function RuntimeTools({
 
 function promptKey(prompt: ToolConfirmationView) {
   return `${prompt.toolId}:${prompt.sessionId}:${JSON.stringify(prompt.sanitizedInput)}`;
+}
+
+function safeFileName(value: string) {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_") || "attachment";
 }
 
 function handleApiError(

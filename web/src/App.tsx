@@ -6,19 +6,32 @@ import { getNavigationItems, type RouteId } from "./navigation";
 import { AccessDenied } from "./components/common";
 import { IdentityPanel } from "./views/IdentityPanel";
 import { ChatWorkspace } from "./views/ChatWorkspace";
-import { AdminWorkspace } from "./views/AdminWorkspace";
-import { OperationsWorkspace, AuditWorkspace } from "./views/OperationsWorkspace";
-import { ReleaseWorkspace } from "./views/ReleaseWorkspace";
-import { OrchestrationWorkspace } from "./views/OrchestrationWorkspace";
+import {
+  AgentConfigWorkspace,
+  FilesWorkspace,
+  KnowledgeWorkspace,
+  TasksWorkspace,
+  ToolsSkillsWorkspace,
+  TraceWorkspace
+} from "./views/WorkbenchViews";
 import "./styles.css";
 
 export default function App() {
   const [identity, setIdentity] = useState<LocalIdentity>(DEFAULT_IDENTITY);
   const [route, setRoute] = useState<RouteId>("chat");
+  const [fileReference, setFileReference] = useState<string>("");
   const api = useMemo(() => new ApiClient({ getIdentity: () => identity }), [identity]);
   const navigation = getNavigationItems(identity.roles);
   const active = navigation.find(item => item.id === route);
   const activeRoute = active?.enabled ? route : "chat";
+
+  function openFileReference(uri: string) {
+    if (!uri) {
+      return;
+    }
+    setFileReference(uri);
+    setRoute("files");
+  }
 
   return (
     <div className="app-shell">
@@ -26,7 +39,7 @@ export default function App() {
         <div className="brand">
           <span className="brand-mark">HA</span>
           <div>
-            <strong>Harness Agent Console</strong>
+            <strong>Personal Agent Workbench</strong>
             <span>{identity.tenantId} · {identity.userId}</span>
           </div>
         </div>
@@ -48,30 +61,42 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <main className="content">{renderRoute(activeRoute, api, identity, active?.enabled === false)}</main>
+        <main className="content">
+          {renderRoute(activeRoute, api, identity, active?.enabled === false, fileReference, openFileReference)}
+        </main>
       </div>
     </div>
   );
 }
 
-function renderRoute(route: RouteId, api: ApiClient, identity: LocalIdentity, wasDenied: boolean) {
+function renderRoute(
+  route: RouteId,
+  api: ApiClient,
+  identity: LocalIdentity,
+  wasDenied: boolean,
+  fileReference: string,
+  openFileReference: (uri: string) => void
+) {
   if (wasDenied) {
     return <AccessDenied message="The selected view is not available for the current local role set." />;
   }
-  if (route === "admin") {
-    return <AdminWorkspace api={api} />;
+  if (route === "tasks") {
+    return <TasksWorkspace api={api} />;
   }
-  if (route === "operations") {
-    return <OperationsWorkspace api={api} />;
+  if (route === "files") {
+    return <FilesWorkspace api={api} initialReference={fileReference} />;
   }
-  if (route === "audit") {
-    return <AuditWorkspace api={api} />;
+  if (route === "knowledge") {
+    return <KnowledgeWorkspace api={api} />;
   }
-  if (route === "release") {
-    return <ReleaseWorkspace api={api} />;
+  if (route === "tools") {
+    return <ToolsSkillsWorkspace api={api} />;
   }
-  if (route === "orchestration") {
-    return <OrchestrationWorkspace api={api} />;
+  if (route === "agent") {
+    return <AgentConfigWorkspace api={api} />;
   }
-  return <ChatWorkspace api={api} identity={identity} />;
+  if (route === "trace") {
+    return <TraceWorkspace api={api} />;
+  }
+  return <ChatWorkspace api={api} identity={identity} onOpenFileReference={openFileReference} />;
 }

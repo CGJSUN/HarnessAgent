@@ -13,6 +13,8 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -63,6 +65,35 @@ public class PlanModeService {
         return Map.copyOf(copy);
     }
 
+    public List<PersonalPlan> listPlans(RuntimeContextScope context) {
+        PersonalWorkspaceLayout layout = workspaceService.initialize(context);
+        try (var paths = Files.list(layout.plansDirectory())) {
+            return paths
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".md"))
+                    .sorted()
+                    .map(path -> readPlan(context, path))
+                    .toList();
+        } catch (IOException ex) {
+            throw new IllegalStateException("Unable to list personal plans.", ex);
+        }
+    }
+
+    public PersonalPlan readPlan(RuntimeContextScope context, String planId) {
+        if (planId == null || planId.isBlank()) {
+            throw new IllegalArgumentException("planId is required");
+        }
+        PersonalWorkspaceLayout layout = workspaceService.initialize(context);
+        Path file = layout.plansDirectory().resolve(planId.trim() + ".md").toAbsolutePath().normalize();
+        if (!file.startsWith(layout.plansDirectory())) {
+            throw new IllegalArgumentException("plan file escapes workspace plans directory");
+        }
+        if (!Files.isRegularFile(file)) {
+            throw new IllegalArgumentException("plan file does not exist");
+        }
+        return readPlan(context, file);
+    }
+
     public static boolean planModeRequested(Map<String, Object> parameters) {
         Object value = parameters == null ? null : parameters.get(PLAN_MODE_PARAMETER);
         return Boolean.TRUE.equals(value) || "true".equalsIgnoreCase(String.valueOf(value));
@@ -89,6 +120,48 @@ public class PlanModeService {
         } catch (IOException ex) {
             throw new IllegalStateException("Unable to write personal plan.", ex);
         }
+    }
+
+    private PersonalPlan readPlan(RuntimeContextScope context, Path file) {
+        try {
+            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            String fileName = file.getFileName().toString();
+            String id = fileName.endsWith(".md") ? fileName.substring(0, fileName.length() - 3) : fileName;
+            String goal = readPrefixedLine(lines, "# Plan: ", id);
+            String ownerId = readPrefixedLine(lines, "- Owner: ", context.userId());
+            String agentId = readPrefixedLine(lines, "- Agent: ", context.agentId());
+            String sessionId = readPrefixedLine(lines, "- Session: ", context.sessionId());
+            Pattern stepPattern = Pattern.compile("^\\d+\\.\\s+(.+)$");
+            List<String> steps = lines.stream()
+                    .map(stepPattern::matcher)
+                    .filter(Matcher::matches)
+                    .map(matcher -> matcher.group(1).trim())
+                    .filter(step -> !step.isBlank())
+                    .toList();
+            if (steps.isEmpty()) {
+                steps = List.of("Review plan file " + fileName);
+            }
+            return new PersonalPlan(
+                    id,
+                    ownerId,
+                    agentId,
+                    sessionId,
+                    goal,
+                    steps,
+                    "workspace://plans/" + fileName,
+                    Instant.ofEpochMilli(Files.getLastModifiedTime(file).toMillis()));
+        } catch (IOException ex) {
+            throw new IllegalStateException("Unable to read personal plan.", ex);
+        }
+    }
+
+    private static String readPrefixedLine(List<String> lines, String prefix, String fallback) {
+        return lines.stream()
+                .filter(line -> line.startsWith(prefix))
+                .map(line -> line.substring(prefix.length()).trim())
+                .filter(value -> !value.isBlank())
+                .findFirst()
+                .orElse(fallback);
     }
 
     private static String markdown(PersonalPlan plan) {

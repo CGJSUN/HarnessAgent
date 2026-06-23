@@ -105,6 +105,7 @@ export type StreamEventKind =
 export interface StreamEvent {
   type: "status" | "delta" | "tool" | "error" | "done" | string;
   kind?: StreamEventKind;
+  channel?: "USER_VISIBLE" | "TOOL_EVENT" | "SYSTEM_NOTICE" | "DIAGNOSTIC" | string;
   content: string;
   terminal: boolean;
   noAnswerReason?: string;
@@ -315,6 +316,43 @@ export interface PersonalDataExport {
   citationRecords: KnowledgeCitation[];
 }
 
+export interface WorkspaceFileView {
+  uri: string;
+  relativePath: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  updatedAt: string;
+}
+
+export interface WorkspaceFilePreview {
+  file: WorkspaceFileView;
+  content: string;
+  truncated: boolean;
+}
+
+export interface WorkspaceFileUpload {
+  agentId: string;
+  sessionId: string;
+  relativePath: string;
+  content: string;
+  mimeType: string;
+}
+
+export interface PersonalPlanView {
+  id: string;
+  ownerId: string;
+  agentId: string;
+  sessionId: string;
+  goal: string;
+  steps: string[];
+  uri: string;
+  createdAt: string;
+  status: string;
+  currentStep: string;
+  blockers: string[];
+}
+
 export interface SkillVersion {
   id: string;
   tenantId: string;
@@ -325,6 +363,62 @@ export interface SkillVersion {
   status: "PROPOSED" | "APPROVED" | "PUBLISHED" | "DISABLED" | "ROLLED_BACK" | string;
   approvedBy: string;
   updatedAt: string;
+}
+
+export interface SkillPermissionSet {
+  fileRead: boolean;
+  fileWrite: boolean;
+  toolExecution: boolean;
+  networkAccess: boolean;
+  memoryWrite: boolean;
+  sandbox: boolean;
+}
+
+export interface PersonalSkill {
+  id: string;
+  tenantId: string;
+  ownerId: string;
+  name: string;
+  description: string;
+  version: string;
+  triggers: string[];
+  sourceType: string;
+  source: string;
+  permissions: SkillPermissionSet;
+  resources: string[];
+  agentIds: string[];
+  status: "ENABLED" | "DISABLED" | "LOCKED" | "ROLLED_BACK" | string;
+  updatedAt: string;
+}
+
+export interface SkillValidationResult {
+  skillName: string;
+  version: string;
+  source: string;
+  valid: boolean;
+  errors: string[];
+}
+
+export interface ToolPendingConfirmation {
+  confirmationId: string;
+  tenantId: string;
+  userId: string;
+  agentId: string;
+  sessionId: string;
+  toolId: string;
+  toolName: string;
+  sourceType: string;
+  riskLevel: string;
+  status: string;
+  parameters: Record<string, unknown>;
+  sanitizedInput: Record<string, unknown>;
+  operationSummary: Record<string, unknown>;
+  idempotencyKey: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  decidedAt?: string | null;
+  decisionReason: string;
 }
 
 export interface OperationalMetricSummary {

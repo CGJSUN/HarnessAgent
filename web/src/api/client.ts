@@ -7,20 +7,31 @@ import type {
   ConsoleAuditResult,
   CostUsageReport,
   EndToEndAcceptanceReport,
+  KnowledgeSource,
   KnowledgeSourceView,
   LocalIdentity,
   OperationalMetricSummary,
   OrchestrationTrace,
+  PersonalDataExport,
+  PersonalMemoryRecord,
+  PersonalPlanView,
+  PersonalSkill,
   PhaseGate,
   ReleaseScenario,
   RollbackAction,
   SessionSummary,
+  SkillValidationResult,
   SkillVersion,
   StreamEvent,
   ToolConfirmationView,
   ToolDefinition,
   ToolExecutionResult,
-  UserConsoleView
+  ToolPendingConfirmation,
+  ToolAuditRecord,
+  UserConsoleView,
+  WorkspaceFilePreview,
+  WorkspaceFileUpload,
+  WorkspaceFileView
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -107,6 +118,7 @@ export function createSseParser(onEvent: (event: StreamEvent) => void) {
       onEvent({
         type: parsed.type || eventName || "message",
         kind: parsed.kind,
+        channel: parsed.channel,
         content: parsed.content || "",
         terminal: Boolean(parsed.terminal),
         noAnswerReason: parsed.noAnswerReason,
@@ -239,6 +251,124 @@ export class ApiClient {
     return this.get<UserConsoleView>(`/api/console/user?${params}`);
   }
 
+  listWorkspaceFiles(agentId: string, sessionId?: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    if (sessionId) {
+      params.set("sessionId", sessionId);
+    }
+    return this.get<WorkspaceFileView[]>(`/api/workspace/files?${params}`, agentHeader(agentId));
+  }
+
+  previewWorkspaceFile(agentId: string, path: string, sessionId?: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    params.set("path", path);
+    if (sessionId) {
+      params.set("sessionId", sessionId);
+    }
+    return this.get<WorkspaceFilePreview>(`/api/workspace/files/preview?${params}`, agentHeader(agentId));
+  }
+
+  uploadWorkspaceFile(payload: WorkspaceFileUpload) {
+    return this.post<WorkspaceFileView>(
+      "/api/workspace/files",
+      payload,
+      agentHeader(payload.agentId)
+    );
+  }
+
+  deleteWorkspaceFile(agentId: string, path: string, sessionId?: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    params.set("path", path);
+    if (sessionId) {
+      params.set("sessionId", sessionId);
+    }
+    return this.request<{ deleted: boolean }>(`/api/workspace/files?${params}`, {
+      method: "DELETE",
+      headers: agentHeader(agentId)
+    });
+  }
+
+  async downloadWorkspaceFile(agentId: string, path: string, sessionId?: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    params.set("path", path);
+    if (sessionId) {
+      params.set("sessionId", sessionId);
+    }
+    const response = await this.fetcher(`/api/workspace/files/download?${params}`, {
+      headers: this.headers(agentHeader(agentId))
+    });
+    if (!response.ok) {
+      throw new ApiClientError(await parseApiError(response));
+    }
+    return response.blob();
+  }
+
+  listPlans(agentId: string, sessionId?: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    if (sessionId) {
+      params.set("sessionId", sessionId);
+    }
+    return this.get<PersonalPlanView[]>(`/api/workspace/plans?${params}`, agentHeader(agentId));
+  }
+
+  createPlan(agentId: string, sessionId: string, payload: { goal: string; steps: string[] }) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    params.set("sessionId", sessionId);
+    return this.post<PersonalPlanView>(`/api/workspace/plans?${params}`, payload, agentHeader(agentId));
+  }
+
+  listMemories(agentId: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    return this.get<PersonalMemoryRecord[]>(`/api/knowledge/memory?${params}`, agentHeader(agentId));
+  }
+
+  requestMemoryWrite(input: {
+    agentId: string;
+    sessionId: string;
+    layer: string;
+    title: string;
+    content: string;
+    requireConfirmation: boolean;
+  }) {
+    const identity = this.getIdentity();
+    return this.post<PersonalMemoryRecord>(
+      "/api/knowledge/memory",
+      {
+        tenantId: identity.tenantId,
+        ownerId: identity.userId,
+        agentId: input.agentId,
+        sessionId: input.sessionId,
+        layer: input.layer,
+        title: input.title,
+        content: input.content,
+        requireConfirmation: input.requireConfirmation
+      },
+      agentHeader(input.agentId)
+    );
+  }
+
+  deleteMemory(agentId: string, memoryId: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    return this.request<PersonalMemoryRecord>(`/api/knowledge/memory/${encodeURIComponent(memoryId)}?${params}`, {
+      method: "DELETE",
+      headers: agentHeader(agentId)
+    });
+  }
+
+  exportPersonalData(agentId: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    return this.get<PersonalDataExport>(`/api/knowledge/export?${params}`, agentHeader(agentId));
+  }
+
   listAgents() {
     return this.get<AgentManagementView[]>(`/api/console/agents?${identitySearchParams(this.getIdentity())}`);
   }
@@ -262,6 +392,11 @@ export class ApiClient {
 
   listConsoleTools() {
     return this.get<ToolDefinition[]>(`/api/console/tools?${identitySearchParams(this.getIdentity())}`);
+  }
+
+  listTools() {
+    const params = identitySearchParams(this.getIdentity());
+    return this.get<ToolDefinition[]>(`/api/tools?${params}`);
   }
 
   setToolEnabled(toolId: string, enabled: boolean) {
@@ -331,8 +466,34 @@ export class ApiClient {
     );
   }
 
+  listPendingToolConfirmations(agentId: string, sessionId: string) {
+    const params = identitySearchParams(this.getIdentity());
+    params.set("agentId", agentId);
+    params.set("sessionId", sessionId);
+    return this.get<ToolPendingConfirmation[]>(`/api/tools/confirmations?${params}`, agentHeader(agentId));
+  }
+
+  listToolAudit() {
+    const params = identitySearchParams(this.getIdentity());
+    return this.get<ToolAuditRecord[]>(`/api/tools/audit?${params}`);
+  }
+
   listKnowledge() {
     return this.get<KnowledgeSourceView[]>(`/api/console/knowledge?${identitySearchParams(this.getIdentity())}`);
+  }
+
+  listKnowledgeSources(agentId?: string) {
+    const params = identitySearchParams(this.getIdentity());
+    if (agentId) {
+      params.set("agentId", agentId);
+    }
+    return this.get<KnowledgeSource[]>(`/api/knowledge/sources?${params}`);
+  }
+
+  deleteKnowledgeSource(sourceId: string) {
+    return this.request<KnowledgeSource>(`/api/knowledge/sources/${encodeURIComponent(sourceId)}`, {
+      method: "DELETE"
+    });
   }
 
   revokeKnowledge(sourceId: string) {
@@ -348,6 +509,37 @@ export class ApiClient {
       params.set("skillName", skillName);
     }
     return this.get<SkillVersion[]>(`/api/console/skills?${params}`);
+  }
+
+  listPersonalSkills(skillName?: string) {
+    const params = identitySearchParams(this.getIdentity());
+    if (skillName) {
+      params.set("skillName", skillName);
+    }
+    return this.get<PersonalSkill[]>(`/api/skills?${params}`);
+  }
+
+  refreshLocalSkills(agentId: string, repositoryRoot?: string) {
+    return this.post<PersonalSkill[]>("/api/skills/refresh-local", {
+      ...identityPayload(this.getIdentity()),
+      agentId,
+      repositoryRoot
+    });
+  }
+
+  validateLocalSkill(agentId: string, skillDirectory: string) {
+    return this.post<SkillValidationResult>("/api/skills/validate-local", {
+      ...identityPayload(this.getIdentity()),
+      agentId,
+      skillDirectory
+    });
+  }
+
+  setPersonalSkillStatus(skill: Pick<PersonalSkill, "name" | "version">, action: "enable" | "disable" | "upgrade" | "rollback" | "lock") {
+    return this.patch<PersonalSkill>(
+      `/api/skills/${encodeURIComponent(skill.name)}/${encodeURIComponent(skill.version)}/${action}?${identitySearchParams(this.getIdentity())}`,
+      undefined
+    );
   }
 
   approveSkill(versionId: string) {
@@ -423,8 +615,8 @@ export class ApiClient {
     return this.get<OrchestrationTrace[]>(`/api/orchestration/traces?${identitySearchParams(this.getIdentity())}`);
   }
 
-  private get<T>(path: string) {
-    return this.request<T>(path);
+  private get<T>(path: string, headers?: HeadersInit) {
+    return this.request<T>(path, headers ? { headers } : undefined);
   }
 
   private post<T>(path: string, body: unknown, headers?: HeadersInit) {
@@ -435,9 +627,10 @@ export class ApiClient {
     });
   }
 
-  private patch<T>(path: string, body: unknown) {
+  private patch<T>(path: string, body: unknown, headers?: HeadersInit) {
     return this.request<T>(path, {
       method: "PATCH",
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body)
     });
   }

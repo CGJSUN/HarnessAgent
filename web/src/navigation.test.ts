@@ -1,21 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { getNavigationItems } from "./navigation";
 
-describe("role-aware navigation", () => {
-  it("keeps restricted navigation unavailable for an employee identity", () => {
+describe("personal workbench navigation", () => {
+  it("exposes every personal workbench section for an employee identity", () => {
     const items = getNavigationItems(["employee"]);
 
-    expect(items.find(item => item.id === "chat")?.enabled).toBe(true);
-    expect(items.find(item => item.id === "admin")?.enabled).toBe(false);
-    expect(items.find(item => item.id === "operations")?.enabled).toBe(false);
-    expect(items.find(item => item.id === "audit")?.enabled).toBe(false);
+    expect(items.map(item => item.id)).toEqual([
+      "chat",
+      "tasks",
+      "files",
+      "knowledge",
+      "tools",
+      "agent",
+      "trace"
+    ]);
+    expect(items.every(item => item.enabled)).toBe(true);
   });
 
-  it("enables privileged sections according to backend roles", () => {
-    const items = getNavigationItems(["admin", "ops", "auditor"]);
+  it("keeps the workbench labels personal instead of enterprise console labels", () => {
+    const labels = getNavigationItems(["employee"]).map(item => item.label);
 
-    expect(items.find(item => item.id === "admin")?.enabled).toBe(true);
-    expect(items.find(item => item.id === "operations")?.enabled).toBe(true);
-    expect(items.find(item => item.id === "audit")?.enabled).toBe(true);
+    expect(labels).toEqual([
+      "Chat",
+      "Tasks",
+      "Files",
+      "Knowledge",
+      "Tools",
+      "Agent",
+      "Trace"
+    ]);
+    expect(labels).not.toContain("Admin");
+    expect(labels).not.toContain("Release");
   });
 });

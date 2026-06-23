@@ -34,12 +34,13 @@ describe("App shell", () => {
   it("opens on the chat workspace instead of a landing page", async () => {
     render(<App />);
 
+    expect(screen.getByText("Personal Agent Workbench")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Agent workspace" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
-  it("keeps admin navigation unavailable when local identity lacks the admin role", async () => {
+  it("keeps personal workbench navigation available without privileged roles", async () => {
     render(<App />);
 
     const roles = screen.getByLabelText("Roles");
@@ -47,7 +48,13 @@ describe("App shell", () => {
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
 
     const navigation = screen.getByRole("navigation", { name: "Workspace" });
-    expect(within(navigation).getByRole("button", { name: "Admin" })).toBeDisabled();
+    expect(within(navigation).queryByRole("button", { name: "Admin" })).not.toBeInTheDocument();
+    expect(within(navigation).getByRole("button", { name: "Tasks" })).toBeEnabled();
+    expect(within(navigation).getByRole("button", { name: "Files" })).toBeEnabled();
+    expect(within(navigation).getByRole("button", { name: "Knowledge" })).toBeEnabled();
+    expect(within(navigation).getByRole("button", { name: "Tools" })).toBeEnabled();
+    expect(within(navigation).getByRole("button", { name: "Agent" })).toBeEnabled();
+    expect(within(navigation).getByRole("button", { name: "Trace" })).toBeEnabled();
   });
 });
 

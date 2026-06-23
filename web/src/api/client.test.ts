@@ -34,15 +34,17 @@ describe("parseApiError", () => {
 
 describe("createSseParser", () => {
   it("parses typed server-sent events across chunks", () => {
-    const events: Array<{ type: string; kind?: string; content: string; terminal: boolean }> = [];
+    const events: Array<{ type: string; kind?: string; channel?: string; content: string; terminal: boolean }> = [];
     const parser = createSseParser(event => events.push(event));
 
-    parser.feed('event: delta\ndata: {"type":"delta","kind":"TEXT_DELTA","content":"Hel","terminal":false}\n');
+    parser.feed(
+      'event: delta\ndata: {"type":"delta","kind":"TEXT_DELTA","channel":"USER_VISIBLE","content":"Hel","terminal":false}\n'
+    );
     parser.feed('\nevent: done\ndata: {"type":"done","kind":"COMPLETION","content":"","terminal":true}\n\n');
     parser.flush();
 
     expect(events).toEqual([
-      { type: "delta", kind: "TEXT_DELTA", content: "Hel", terminal: false },
+      { type: "delta", kind: "TEXT_DELTA", channel: "USER_VISIBLE", content: "Hel", terminal: false },
       { type: "done", kind: "COMPLETION", content: "", terminal: true }
     ]);
   });
@@ -132,5 +134,31 @@ describe("ApiClient", () => {
     const url = new URL(requested, "http://localhost");
     expect(url.searchParams.get("from")).toMatch(/2026-06-14T.*Z$/);
     expect(url.searchParams.get("to")).toMatch(/2026-06-14T.*Z$/);
+  });
+
+  it("uses personal workbench endpoints for files, plans, memory, and skills", async () => {
+    const requests: string[] = [];
+    const client = new ApiClient({
+      getIdentity: () => DEFAULT_IDENTITY,
+      fetcher: async input => {
+        requests.push(String(input));
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    });
+
+    await client.listWorkspaceFiles("agent-a", "session-a");
+    await client.listPlans("agent-a", "session-a");
+    await client.listMemories("agent-a");
+    await client.listPersonalSkills();
+
+    expect(requests.map(request => new URL(request, "http://localhost").pathname)).toEqual([
+      "/api/workspace/files",
+      "/api/workspace/plans",
+      "/api/knowledge/memory",
+      "/api/skills"
+    ]);
   });
 });
