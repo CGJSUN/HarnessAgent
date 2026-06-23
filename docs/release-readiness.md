@@ -27,9 +27,9 @@ MVP 验收标准：
 | Workspace | 工作区初始化、路径拒绝、文件引用、快照恢复、计划模式、channel 和压缩通过测试 | 禁用工作区写操作或切回上一 workspace backend |
 | Memory/RAG | 个人知识源、记忆、索引状态、引用来源、无答案、删除和导出通过测试 | 关闭 RAG provider 或禁用目标知识源 |
 | Tool/HITL | 参数拒绝、只读允许、写操作确认、HITL 恢复、结构化结果、幂等和最小审计通过测试 | 禁用单个工具或全部高风险工具 |
-| Skill | 本地技能仓库、元数据、加载、权限、启停、升级、回滚和验证通过测试 | 禁用目标 Skill 或锁定上一版本 |
+| Skill | 本地技能仓库、元数据、加载、权限、启停、升级、回滚和验证通过测试 | 禁用、回滚或锁定目标 Skill 版本 |
 | Multi-Agent | 子 Agent 规格、路由、后台委派、Agent-as-Tool、上下文边界、trace 和失败降级通过测试 | 禁用 Supervisor，回退单 Agent |
-| Workbench | 聊天、计划、文件、知识/记忆、工具、技能、配置、trace 在桌面和移动视口通过测试 | 隐藏新工作台模块或回退旧 console |
+| Workbench | 聊天、计划、文件、知识/记忆、工具、技能、配置、trace 在桌面和移动视口通过测试 | 回退上一版 Web 静态资源或在网关隐藏个人工作台入口 |
 
 ## 遗留 release gate 处理
 
@@ -38,6 +38,7 @@ MVP 验收标准：
 ## 部署回滚流程
 
 1. 禁用入口能力：
+   - 回退上一版 Web 静态资源，或在网关把个人工作台入口切回旧 console。
    - 禁用目标 Agent。
    - 禁用目标工具。
    - 关闭 RAG-backed answer。
@@ -46,7 +47,7 @@ MVP 验收标准：
 2. 切换运行依赖：
    - 切回旧模型 provider。
    - 切回上一版配置。
-   - 按发布预案回滚 Skill 到上一已批准发布版本；当前控制台未开放可执行 rollback REST/UI。
+   - 个人 Skill 使用 `/api/skills/{skillName}/{version}/rollback` 回滚到上一可用版本，必要时再 lock；遗留 console Skill API 只保留禁用能力。
 
 3. 保留证据：
    - 不删除工具最小审计。
@@ -57,6 +58,45 @@ MVP 验收标准：
 4. 验证恢复：
    - 重新执行 owner/Agent/session 隔离、工作区路径拒绝、高风险确认、trace 和健康检查。
    - 确认新请求不再进入被回滚能力。
+
+## 个人版回滚操作表
+
+| 能力 | 禁用或回滚方式 | 验证方式 |
+|---|---|---|
+| 个人工作台入口 | 当前没有运行时路由 feature flag。发布时必须保留上一版 Web 静态资源或网关路由；回滚时将 `/`、`/assets/**` 和 Vite 静态资源指向上一版 console，或在网关临时拒绝个人工作台入口。 | 浏览器打开首页，确认不再出现 Chat、Tasks、Files、Knowledge、Tools、Agent 和 Trace 个人工作台导航；后端 API 可以继续保留用于兼容和诊断。 |
+| 工具 | 通过 `PATCH /api/console/tools/{toolId}/enabled` 将目标工具置为 `false`。对 Shell、SQL、code、network、`MCP`、`PROTOCOL` 或外部写操作工具，先列出工具并按 `sourceType`、`sourceRef` 或风险等级批量禁用。 | `GET /api/console/tools` 中目标工具 `enabled=false`；再次执行 `/api/tools/execute` 应返回禁用或拒绝结果，并保留审计。 |
+| Skill | 个人 Skill 使用 `/api/skills/{skillName}/{version}/disable` 禁用异常版本，使用 `/api/skills/{skillName}/{version}/rollback` 回滚到上一可用版本，稳定后可用 `/lock` 锁定。 | `GET /api/skills` 中目标版本状态符合预期；触发禁用版本应失败，触发回滚版本应通过权限和路径校验。 |
+| RAG provider | 请求级关闭使用 `knowledgeEnabled=false`；配置级回滚将 `harness-agent.memory-rag.provider` 切回 `local` 或移除外部 provider 配置；数据级隔离使用 `PATCH /api/console/knowledge/{sourceId}/revoke` 撤销目标知识源，避免优先删除数据。 | 聊天请求不再注入 RAG evidence；被撤销知识源不再出现在检索结果；未知外部 provider 应 fail closed。 |
+| 协议适配器 | `MCP` 和 `PROTOCOL` 当前作为受治理工具来源接入。回滚时按 `sourceType` 或 `sourceRef` 禁用对应工具，并同步撤销外部 adapter 配置、网关访问或本地凭据。 | 列表中相关工具为禁用；协议工具执行被拒绝；审计仍记录禁用前后的 source type/source ref。 |
+| 多 Agent 编排 | 禁用 Supervisor 入口或将请求回退单 Agent；禁用 `AGENT` source type 的 Agent-as-Tool 工具。 | trace 中不再产生新 handoff、subagent 或 background delegation 记录。 |
+
+常用命令示例，替换其中 owner、agent、tool、skill 和 source ID：
+
+```bash
+curl -s "http://localhost:8080/api/console/tools?tenantId=personal&userId=owner-a" \
+  -H "X-Tenant-Id: personal" \
+  -H "X-User-Id: owner-a"
+
+curl -X PATCH "http://localhost:8080/api/console/tools/tool-id/enabled?tenantId=personal&userId=owner-a" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: personal" \
+  -H "X-User-Id: owner-a" \
+  -d '{"enabled":false}'
+
+curl -X PATCH "http://localhost:8080/api/skills/skill-name/1.0.0/disable?tenantId=personal&userId=owner-a" \
+  -H "X-Tenant-Id: personal" \
+  -H "X-User-Id: owner-a"
+
+curl -X PATCH "http://localhost:8080/api/skills/skill-name/0.9.0/rollback?tenantId=personal&userId=owner-a" \
+  -H "X-Tenant-Id: personal" \
+  -H "X-User-Id: owner-a"
+
+curl -X PATCH "http://localhost:8080/api/console/knowledge/source-id/revoke?tenantId=personal&userId=owner-a" \
+  -H "X-Tenant-Id: personal" \
+  -H "X-User-Id: owner-a"
+```
+
+发布前必须形成回滚清单：个人工作台上一版静态资源位置、待禁用工具 ID、`MCP`/`PROTOCOL` source ref、Skill 当前版本和上一版本、RAG provider 当前值、可撤销知识源 ID，以及回滚操作者。
 
 ## 端到端验收清单
 
@@ -81,11 +121,29 @@ MVP 验收标准：
   - API、Agent、RAG、工具、子 Agent、Token、失败、耗时和反馈能进入个人 trace 或诊断视图。
   - 用量能按 owner、Agent 和 provider 聚合；租户成本报表只作为遗留兼容。
 
+## 本次端到端验收证据
+
+2026-06-23 的个人版发布候选以以下自动化检查作为验收证据。本次已执行并通过 `node scripts/validate-agentscope-coverage.mjs`、`openspec validate build-personal-agentscope-agent`、`mvn test`、`web/ npm run test:unit`、`web/ npm run test:browser` 和 `web/ npm run build`。
+
+| 验收项 | 自动化证据 | 边界 |
+|---|---|---|
+| 个人聊天和流式事件 | `mvn test` 中的 `ChatServiceTest`、`ApiContractTest`，以及 `web/tests/console.spec.ts` 聊天工作台流程 | Playwright 使用 mock 后端，不替代真实环境 smoke。 |
+| 工作区文件 | `PersonalWorkspaceServiceTest`、`PersonalWorkspaceFileServiceTest`、`WorkspaceController` API client 测试和 Playwright 文件视图 | 真实对象存储仍是后续扩展，当前生产快照验收路径是 JDBC。 |
+| 记忆/RAG | `PersonalMemoryServiceTest`、`KnowledgeServiceTest`、`MemoryRagProviderRegistryTest` 和前端知识/记忆视图测试 | 外部 memory/RAG provider 未配置时应 fail closed。 |
+| 工具确认 | `ToolServiceTest`、`JdbcToolStoreTest`、前端 confirmation resume 测试和 Playwright 确认流程 | 默认 executor 是治理链路回显，真实外部系统工具需额外接线验收。 |
+| 子 Agent | `WorkspaceSubAgentSpecStoreTest`、`OrchestrationServiceTest` 和 trace 视图测试 | 后台委派队列跨进程恢复仍是后续增强。 |
+| Skill | `PersonalSkillServiceTest`、`SkillControllerTest`、前端 API client 和工作台 Skill 管理测试 | Git/MySQL/PostgreSQL 远端 Skill 仓库仍是 adapter 预留。 |
+| 工作台诊断 | `web/src/App.test.tsx`、`web/src/navigation.test.ts`、`web/tests/console.spec.ts` 和 `npm run build` | `/api/release/**` 仍是遗留诊断，不作为个人版唯一验收口径。 |
+
 ## 发布前命令
 
 ```bash
+node scripts/validate-agentscope-coverage.mjs
 openspec validate build-personal-agentscope-agent
 mvn test
+cd web && npm run test:unit
+cd web && npm run test:browser
+cd web && npm run build
 ```
 
 如果 `mvn test` 报 `无效的标记: --release`、`class file version 61.0` 或 Spring Boot Maven 插件无法加载，说明当前 Java 版本低于 17。先切换 JDK 17，并确认 `mvn -version` 中的 Java version 也是 17：

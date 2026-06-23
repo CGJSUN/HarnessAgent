@@ -87,9 +87,9 @@
 
 ## 9. 覆盖校验与发布准备
 
-- [ ] 9.1 为 AgentScope Java v2 覆盖矩阵增加自动或半自动校验脚本。
-- [ ] 9.2 对所有 OpenSpec artifacts 运行校验，修复 requirement、scenario 和 task 格式问题。
-- [ ] 9.3 运行后端相关测试，覆盖个人上下文、状态恢复、工具 HITL、RAG、技能和多 Agent 编排。
-- [ ] 9.4 运行前端 `npm run test:unit`、`npm run test:browser` 和 `npm run build`。
-- [ ] 9.5 更新发布说明和回滚文档，说明如何禁用个人版新入口、工具、技能、RAG provider 和协议适配器。
-- [ ] 9.6 完成端到端验收，覆盖个人聊天、工作区文件、记忆/RAG、工具确认、子 Agent、技能和工作台诊断。
+- [x] 9.1 为 AgentScope Java v2 覆盖矩阵增加自动或半自动校验脚本。
+- [x] 9.2 对所有 OpenSpec artifacts 运行校验，修复 requirement、scenario 和 task 格式问题。
+- [x] 9.3 运行后端相关测试，覆盖个人上下文、状态恢复、工具 HITL、RAG、技能和多 Agent 编排。
+- [x] 9.4 运行前端 `npm run test:unit`、`npm run test:browser` 和 `npm run build`。
+- [x] 9.5 更新发布说明和回滚文档，说明如何禁用个人版新入口、工具、技能、RAG provider 和协议适配器。
+- [x] 9.6 完成端到端验收，覆盖个人聊天、工作区文件、记忆/RAG、工具确认、子 Agent、技能和工作台诊断。
