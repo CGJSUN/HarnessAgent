@@ -12,6 +12,7 @@ import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.session.domain.ChatMessage;
 import com.harnessagent.tooling.domain.ToolAuditPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
+import com.harnessagent.tooling.domain.ToolOutputSchema;
 import com.harnessagent.tooling.domain.ToolParameterSchema;
 import com.harnessagent.tooling.domain.ToolPermissionPolicy;
 import com.harnessagent.tooling.domain.ToolRegistration;
@@ -21,16 +22,20 @@ import com.harnessagent.tooling.domain.ToolSourceType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import com.harnessagent.orchestration.domain.AgentToolDefinition;
-import com.harnessagent.orchestration.domain.ContextBoundary;
+import com.harnessagent.orchestration.domain.DelegationMode;
 import com.harnessagent.orchestration.domain.ExpertAgentDefinition;
+import com.harnessagent.orchestration.domain.FailureStrategy;
 import com.harnessagent.orchestration.domain.HandoffRecord;
 import com.harnessagent.orchestration.domain.OrchestrationRequest;
 import com.harnessagent.orchestration.domain.OrchestrationResult;
@@ -51,7 +56,7 @@ public class OrchestrationService {
     private final ToolService toolService;
     private final RuntimeTelemetry telemetry;
     private final SensitiveDataRedactor redactor;
-    private final List<OrchestrationTrace> traces = new CopyOnWriteArrayList<>();
+    private final OrchestrationTraceStore traceStore;
 
     public OrchestrationService(
             ExpertAgentRegistry registry,
@@ -61,6 +66,27 @@ public class OrchestrationService {
             ToolService toolService,
             RuntimeTelemetry telemetry,
             SensitiveDataRedactor redactor) {
+        this(
+                registry,
+                router,
+                agentRuntime,
+                contextFactory,
+                toolService,
+                telemetry,
+                redactor,
+                new OrchestrationTraceStore());
+    }
+
+    @Autowired
+    public OrchestrationService(
+            ExpertAgentRegistry registry,
+            SupervisorRouter router,
+            AgentRuntime agentRuntime,
+            RuntimeContextFactory contextFactory,
+            ToolService toolService,
+            RuntimeTelemetry telemetry,
+            SensitiveDataRedactor redactor,
+            OrchestrationTraceStore traceStore) {
         this.registry = registry;
         this.router = router;
         this.agentRuntime = agentRuntime;
@@ -68,6 +94,7 @@ public class OrchestrationService {
         this.toolService = toolService;
         this.telemetry = telemetry;
         this.redactor = redactor;
+        this.traceStore = traceStore == null ? new OrchestrationTraceStore() : traceStore;
     }
 
     public ExpertAgentDefinition register(ExpertAgentDefinition definition) {
@@ -85,6 +112,7 @@ public class OrchestrationService {
         if (!child.approved()) {
             throw new IllegalStateException("Child agent must be approved before exposing as tool.");
         }
+        boolean mutating = childMayMutate(child);
         return toolService.registerTool(new ToolRegistration(
                 child.tenantId(),
                 "agent." + child.name(),
@@ -93,10 +121,11 @@ public class OrchestrationService {
                 child.ownerId(),
                 ToolSourceType.AGENT,
                 child.id(),
-                ToolRiskLevel.READ_ONLY,
-                false,
+                mutating ? ToolRiskLevel.HIGH_RISK : ToolRiskLevel.READ_ONLY,
+                mutating,
                 child.enabled(),
                 new ToolParameterSchema(Set.of("task"), Set.of("context"), Map.of(), Set.of()),
+                ToolOutputSchema.structured("application/json", Map.of("type", "object", "format", "agent-tool-result")),
                 new ToolPermissionPolicy(Set.of(child.tenantId()), Set.of(), Set.of(), Set.of(), child.requiredRoles()),
                 ToolAuditPolicy.standard()));
     }
@@ -115,7 +144,7 @@ public class OrchestrationService {
     public OrchestrationResult orchestrate(OrchestrationRequest request) {
         Instant startedAt = Instant.now();
         List<ExpertAgentDefinition> candidates = registry.list(request.principal().tenantId());
-        RouteDecision decision = router.route(request.principal(), request.taskIntent(), candidates);
+        RouteDecision decision = router.route(request.principal(), request.taskIntent(), request.context(), candidates);
         log.info(
                 "orchestration route tenantId={} supervisorAgentId={} selectedAgentId={} status={} candidateCount={}",
                 request.principal().tenantId(),
@@ -123,43 +152,56 @@ public class OrchestrationService {
                 decision.selectedAgentId(),
                 decision.status(),
                 candidates.size());
-        ContextBoundary boundary = new ContextBoundary(false, false, false, true, java.util.Set.of("question", "citations"));
-        // Context boundary redaction happens before child execution or handoff recording.
-        Map<String, Object> sharedContext = redactor.redactMap(boundary.filter(request.context()));
         List<OrchestrationStep> steps = new ArrayList<>();
         List<HandoffRecord> handoffs = new ArrayList<>();
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        Map<String, Object> candidateReasons = candidateReasons(request.principal(), request.taskIntent(), candidates);
+        attributes.put("reason", decision.reason());
+        attributes.put("candidateReasons", candidateReasons);
+        attributes.put("delegationMode", request.delegationMode().name());
+        attributes.put("failureStrategy", request.failureStrategy().name());
+        steps.add(new OrchestrationStep(
+                null,
+                request.supervisorAgentId(),
+                "route",
+                Map.of("taskIntent", safeString(request.taskIntent()), "candidateAgentIds", candidateReasons.keySet()),
+                Map.of(
+                        "selectedAgentId", safeString(decision.selectedAgentId()),
+                        "reason", safeString(decision.reason()),
+                        "confidence", decision.confidence()),
+                decision.status()));
         OrchestrationStatus status = decision.status();
+        ExpertAgentDefinition backgroundSelected = null;
+        Map<String, Object> backgroundSharedContext = Map.of();
         if (decision.status() == OrchestrationStatus.ROUTED) {
-            RuntimeContextScope childContext = contextFactory.create(
-                    request.principal().tenantId(),
-                    request.principal().userId(),
-                    decision.selectedAgentId(),
-                    "handoff-" + java.util.UUID.randomUUID());
-            AgentReply reply = agentRuntime.complete(new AgentRunRequest(
-                    childContext,
-                    List.of(ChatMessage.user(request.task() == null ? "" : request.task())))).block();
-            steps.add(new OrchestrationStep(
-                    null,
-                    decision.selectedAgentId(),
-                    "execute_task",
-                    Map.of(
-                            "task", request.task() == null ? "" : request.task(),
-                            "context", sharedContext),
-                    Map.of("result", reply == null ? "" : reply.content()),
-                    OrchestrationStatus.EXECUTED));
+            ExpertAgentDefinition selected = registry.find(decision.selectedAgentId())
+                    .orElseThrow(() -> new IllegalStateException("Selected agent is not registered."));
+            Map<String, Object> sharedContext = redactor.redactMap(selected.contextBoundary().filter(request.context()));
             handoffs.add(new HandoffRecord(
                     Instant.now(),
                     request.supervisorAgentId(),
-                    decision.selectedAgentId(),
+                    selected.id(),
                     "supervisor_route",
                     sharedContext));
-            status = OrchestrationStatus.EXECUTED;
+            steps.add(new OrchestrationStep(
+                    null,
+                    selected.id(),
+                    "handoff",
+                    Map.of("fromAgentId", request.supervisorAgentId(), "context", sharedContext),
+                    Map.of("toAgentId", selected.id()),
+                    OrchestrationStatus.HANDOFF));
+            status = executeSelectedAgent(request, selected, sharedContext, steps, attributes);
+            if (status == OrchestrationStatus.BACKGROUND_RUNNING) {
+                backgroundSelected = selected;
+                backgroundSharedContext = sharedContext;
+            }
             log.info(
                     "orchestration handoff executed tenantId={} supervisorAgentId={} selectedAgentId={}",
                     request.principal().tenantId(),
                     request.supervisorAgentId(),
-                    decision.selectedAgentId());
+                    selected.id());
         } else {
+            attributes.put("nextAction", nextAction(request.failureStrategy()));
             log.warn(
                     "orchestration route not_executed tenantId={} supervisorAgentId={} status={} reason={}",
                     request.principal().tenantId(),
@@ -180,8 +222,11 @@ public class OrchestrationService {
                 candidates.stream().map(ExpertAgentDefinition::id).toList(),
                 steps,
                 handoffs,
-                Map.of("reason", decision.reason()));
-        traces.add(trace);
+                attributes);
+        traceStore.save(trace);
+        if (status == OrchestrationStatus.BACKGROUND_RUNNING && backgroundSelected != null) {
+            scheduleBackgroundCompletion(request, backgroundSelected, backgroundSharedContext, trace.id());
+        }
         telemetry.record(
                 TelemetryEventType.ORCHESTRATION,
                 request.principal().tenantId(),
@@ -193,14 +238,292 @@ public class OrchestrationService {
         return new OrchestrationResult(decision, trace);
     }
 
+    private OrchestrationStatus executeSelectedAgent(
+            OrchestrationRequest request,
+            ExpertAgentDefinition selected,
+            Map<String, Object> sharedContext,
+            List<OrchestrationStep> steps,
+            Map<String, Object> attributes) {
+        if (request.delegationMode() == DelegationMode.BACKGROUND) {
+            String runId = "bg-" + UUID.randomUUID();
+            steps.add(new OrchestrationStep(
+                    null,
+                    selected.id(),
+                    "background_delegate",
+                    Map.of("task", safeString(request.task()), "context", sharedContext),
+                    Map.of("runId", runId),
+                    OrchestrationStatus.BACKGROUND_RUNNING));
+            attributes.put("backgroundRunId", runId);
+            attributes.put("systemReminder", "Background subagent " + selected.name() + " accepted.");
+            return OrchestrationStatus.BACKGROUND_RUNNING;
+        }
+        try {
+            String result = invokeAgent(request.principal(), selected.id(), safeString(request.task()), sharedContext);
+            steps.add(new OrchestrationStep(
+                    null,
+                    selected.id(),
+                    "execute_task",
+                    Map.of("task", safeString(request.task()), "context", sharedContext),
+                    Map.of("result", result),
+                    OrchestrationStatus.EXECUTED));
+            steps.add(new OrchestrationStep(
+                    null,
+                    request.supervisorAgentId(),
+                    "assemble_result",
+                    Map.of("childAgentId", selected.id()),
+                    Map.of("result", result),
+                    OrchestrationStatus.EXECUTED));
+            attributes.put("result", result);
+            return OrchestrationStatus.EXECUTED;
+        } catch (RuntimeException ex) {
+            steps.add(new OrchestrationStep(
+                    null,
+                    selected.id(),
+                    "execute_task_failed",
+                    Map.of("task", safeString(request.task())),
+                    Map.of("errorType", ex.getClass().getSimpleName(), "message", safeString(ex.getMessage())),
+                    OrchestrationStatus.BLOCKED));
+            return handleFailure(request, selected, sharedContext, steps, attributes, ex);
+        }
+    }
+
+    private OrchestrationStatus handleFailure(
+            OrchestrationRequest request,
+            ExpertAgentDefinition selected,
+            Map<String, Object> sharedContext,
+            List<OrchestrationStep> steps,
+            Map<String, Object> attributes,
+            RuntimeException ex) {
+        if (request.failureStrategy() == FailureStrategy.FALLBACK_TO_SUPERVISOR) {
+            try {
+                String result = invokeAgent(
+                        request.principal(),
+                        request.supervisorAgentId(),
+                        safeString(request.task()),
+                        sharedContext);
+                steps.add(new OrchestrationStep(
+                        null,
+                        request.supervisorAgentId(),
+                        "fallback_to_supervisor",
+                        Map.of("failedAgentId", selected.id(), "errorType", ex.getClass().getSimpleName()),
+                        Map.of("result", result),
+                        OrchestrationStatus.EXECUTED));
+                steps.add(new OrchestrationStep(
+                        null,
+                        request.supervisorAgentId(),
+                        "assemble_result",
+                        Map.of("childAgentId", selected.id(), "fallback", true),
+                        Map.of("result", result),
+                        OrchestrationStatus.EXECUTED));
+                attributes.put("fallbackAgentId", request.supervisorAgentId());
+                attributes.put("result", result);
+                return OrchestrationStatus.EXECUTED;
+            } catch (RuntimeException fallbackException) {
+                steps.add(new OrchestrationStep(
+                        null,
+                        request.supervisorAgentId(),
+                        "fallback_to_supervisor_failed",
+                        Map.of("failedAgentId", selected.id(), "errorType", ex.getClass().getSimpleName()),
+                        Map.of(
+                                "errorType", fallbackException.getClass().getSimpleName(),
+                                "message", safeString(fallbackException.getMessage())),
+                        OrchestrationStatus.BLOCKED));
+                attributes.put("errorType", fallbackException.getClass().getSimpleName());
+                attributes.put("nextAction", "stop");
+                return OrchestrationStatus.BLOCKED;
+            }
+        }
+        if (request.failureStrategy() == FailureStrategy.RETRY) {
+            try {
+                String result = invokeAgent(request.principal(), selected.id(), safeString(request.task()), sharedContext);
+                steps.add(new OrchestrationStep(
+                        null,
+                        selected.id(),
+                        "retry_execute_task",
+                        Map.of("task", safeString(request.task())),
+                        Map.of("result", result),
+                        OrchestrationStatus.EXECUTED));
+                attributes.put("result", result);
+                return OrchestrationStatus.EXECUTED;
+            } catch (RuntimeException retryException) {
+                steps.add(new OrchestrationStep(
+                        null,
+                        selected.id(),
+                        "retry_execute_task_failed",
+                        Map.of("task", safeString(request.task())),
+                        Map.of(
+                                "errorType", retryException.getClass().getSimpleName(),
+                                "message", safeString(retryException.getMessage())),
+                        OrchestrationStatus.BLOCKED));
+                attributes.put("errorType", retryException.getClass().getSimpleName());
+                attributes.put("nextAction", "stop");
+                return OrchestrationStatus.BLOCKED;
+            }
+        }
+        attributes.put("errorType", ex.getClass().getSimpleName());
+        attributes.put("nextAction", nextAction(request.failureStrategy()));
+        return request.failureStrategy() == FailureStrategy.CLARIFY
+                ? OrchestrationStatus.ESCALATED
+                : OrchestrationStatus.BLOCKED;
+    }
+
+    private void scheduleBackgroundCompletion(
+            OrchestrationRequest request,
+            ExpertAgentDefinition selected,
+            Map<String, Object> sharedContext,
+            String parentTraceId) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                String result = invokeAgent(request.principal(), selected.id(), safeString(request.task()), sharedContext);
+                traceStore.save(new OrchestrationTrace(
+                        null,
+                        Instant.now(),
+                        request.principal().tenantId(),
+                        request.principal().userId(),
+                        request.supervisorAgentId(),
+                        selected.id(),
+                        request.taskIntent(),
+                        1d,
+                        OrchestrationStatus.BACKGROUND_COMPLETED,
+                        List.of(selected.id()),
+                        List.of(new OrchestrationStep(
+                                null,
+                                selected.id(),
+                                "background_complete",
+                                Map.of("task", safeString(request.task())),
+                                Map.of("result", result),
+                                OrchestrationStatus.BACKGROUND_COMPLETED)),
+                        List.of(new HandoffRecord(
+                                Instant.now(),
+                                request.supervisorAgentId(),
+                                selected.id(),
+                                "background_delegate",
+                                sharedContext)),
+                        Map.of(
+                                "parentTraceId", parentTraceId,
+                                "systemReminder", "Background subagent " + selected.name() + " completed.",
+                                "result", result)));
+            } catch (RuntimeException ex) {
+                traceStore.save(new OrchestrationTrace(
+                        null,
+                        Instant.now(),
+                        request.principal().tenantId(),
+                        request.principal().userId(),
+                        request.supervisorAgentId(),
+                        selected.id(),
+                        request.taskIntent(),
+                        1d,
+                        OrchestrationStatus.BLOCKED,
+                        List.of(selected.id()),
+                        List.of(new OrchestrationStep(
+                                null,
+                                selected.id(),
+                                "background_failed",
+                                Map.of("task", safeString(request.task())),
+                                Map.of(
+                                        "errorType", ex.getClass().getSimpleName(),
+                                        "message", safeString(ex.getMessage())),
+                                OrchestrationStatus.BLOCKED)),
+                        List.of(new HandoffRecord(
+                                Instant.now(),
+                                request.supervisorAgentId(),
+                                selected.id(),
+                                "background_delegate",
+                                sharedContext)),
+                        Map.of(
+                                "parentTraceId", parentTraceId,
+                                "errorType", ex.getClass().getSimpleName(),
+                                "nextAction", "stop")));
+            }
+        });
+    }
+
+    private String invokeAgent(
+            SecurityPrincipal principal,
+            String agentId,
+            String task,
+            Map<String, Object> sharedContext) {
+        RuntimeContextScope childContext = contextFactory.create(
+                principal.tenantId(),
+                principal.userId(),
+                agentId,
+                "handoff-" + UUID.randomUUID());
+        AgentReply reply = agentRuntime.complete(new AgentRunRequest(
+                childContext,
+                List.of(ChatMessage.user(taskMessage(task, sharedContext))))).block();
+        return reply == null ? "" : safeString(reply.content());
+    }
+
+    private static boolean childMayMutate(ExpertAgentDefinition child) {
+        return child.allowedTools().stream().anyMatch(OrchestrationService::mutatingCapability);
+    }
+
+    private static boolean mutatingCapability(String capability) {
+        if (capability == null) {
+            return false;
+        }
+        String normalized = capability.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("write")
+                || normalized.contains("update")
+                || normalized.contains("delete")
+                || normalized.contains("create")
+                || normalized.contains("send")
+                || normalized.contains("shell")
+                || normalized.contains("command")
+                || normalized.contains("sql")
+                || normalized.contains("database")
+                || normalized.contains("code")
+                || normalized.contains("script");
+    }
+
+    private static Map<String, Object> candidateReasons(
+            SecurityPrincipal principal,
+            String taskIntent,
+            List<ExpertAgentDefinition> candidates) {
+        Map<String, Object> reasons = new LinkedHashMap<>();
+        for (ExpertAgentDefinition candidate : candidates) {
+            if (!candidate.approved()) {
+                reasons.put(candidate.id(), "not_approved");
+            } else if (!candidate.enabled()) {
+                reasons.put(candidate.id(), "disabled");
+            } else if (!candidate.requiredRoles().isEmpty()
+                    && candidate.requiredRoles().stream().noneMatch(principal.roles()::contains)) {
+                reasons.put(candidate.id(), "role_not_permitted");
+            } else if (candidate.canHandle(taskIntent)) {
+                reasons.put(candidate.id(), "matched_intent");
+            } else {
+                reasons.put(candidate.id(), "low_confidence");
+            }
+        }
+        return Map.copyOf(reasons);
+    }
+
+    private static String nextAction(FailureStrategy strategy) {
+        return switch (strategy == null ? FailureStrategy.STOP : strategy) {
+            case CLARIFY -> "clarify";
+            case RETRY -> "retry";
+            case FALLBACK_TO_SUPERVISOR -> "fallback_to_supervisor";
+            case STOP -> "stop";
+        };
+    }
+
+    private static String taskMessage(String task, Map<String, Object> sharedContext) {
+        if (sharedContext == null || sharedContext.isEmpty()) {
+            return task;
+        }
+        return task + "\n\nShared context: " + sharedContext;
+    }
+
+    private static String safeString(String value) {
+        return value == null ? "" : value;
+    }
+
     public List<OrchestrationTrace> listTraces(SecurityPrincipal principal) {
         if (!principal.roles().contains("admin")
                 && !principal.roles().contains("ops")
                 && !principal.roles().contains("auditor")) {
             throw new IllegalStateException("admin, ops, or auditor role is required");
         }
-        return traces.stream()
-                .filter(trace -> trace.tenantId().equals(principal.tenantId()))
-                .toList();
+        return traceStore.list(principal.tenantId());
     }
 }

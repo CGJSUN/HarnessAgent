@@ -14,7 +14,9 @@ public record ExpertAgentDefinition(
         String outputContract,
         Set<String> requiredRoles,
         Set<String> allowedTools,
+        Set<String> allowedSkills,
         Set<String> allowedKnowledgeSources,
+        ContextBoundary contextBoundary,
         String ownerId,
         boolean approved,
         boolean enabled,
@@ -30,10 +32,48 @@ public record ExpertAgentDefinition(
         outputContract = outputContract == null ? "" : outputContract.trim();
         requiredRoles = safeSet(requiredRoles);
         allowedTools = safeSet(allowedTools);
+        allowedSkills = safeSet(allowedSkills);
         allowedKnowledgeSources = safeSet(allowedKnowledgeSources);
+        contextBoundary = contextBoundary == null
+                ? new ContextBoundary(false, false, false, true, Set.of("question", "citations"))
+                : contextBoundary;
         ownerId = require(ownerId, "ownerId");
         version = version == null || version.isBlank() ? "v1" : version.trim();
         updatedAt = updatedAt == null ? Instant.now() : updatedAt;
+    }
+
+    public ExpertAgentDefinition(
+            String id,
+            String tenantId,
+            String name,
+            String purpose,
+            String inputContract,
+            String outputContract,
+            Set<String> requiredRoles,
+            Set<String> allowedTools,
+            Set<String> allowedKnowledgeSources,
+            String ownerId,
+            boolean approved,
+            boolean enabled,
+            String version,
+            Instant updatedAt) {
+        this(
+                id,
+                tenantId,
+                name,
+                purpose,
+                inputContract,
+                outputContract,
+                requiredRoles,
+                allowedTools,
+                Set.of(),
+                allowedKnowledgeSources,
+                new ContextBoundary(false, false, false, true, Set.of("question", "citations")),
+                ownerId,
+                approved,
+                enabled,
+                version,
+                updatedAt);
     }
 
     public boolean canHandle(String taskIntent) {

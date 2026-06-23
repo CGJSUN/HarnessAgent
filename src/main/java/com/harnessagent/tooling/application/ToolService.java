@@ -586,7 +586,7 @@ public class ToolService {
                     .findFirst()
                     .orElseThrow(() -> new IllegalStateException("No executor supports tool: " + tool.name()));
             Map<String, Object> output = timeoutGuard.guardTool(Mono.fromCallable(
-                    () -> executor.execute(tool, command.parameters()))).block();
+                    () -> executor.execute(tool, command.parameters(), command))).block();
             return ToolExecutionResult.success(tool.id(), output);
         } catch (RuntimeException exception) {
             return ToolExecutionResult.failed(tool.id(), exception.getMessage());

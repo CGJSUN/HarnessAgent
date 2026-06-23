@@ -637,7 +637,7 @@ curl -X PATCH 'http://localhost:8080/api/console/agents/enterprise-assistant/pro
 
 ## 10. 多 Agent 编排
 
-多 Agent 阶段建议在核心、RAG、工具、生产运行时和安全治理稳定后再做。
+多 Agent 编排已具备个人版后端基础能力，后续工作台任务会补齐可视化操作入口和更完整的后台任务 UX。
 
 专家 Agent 示例：
 
@@ -658,14 +658,16 @@ Supervisor 负责：
 
 跨 Agent 共享上下文时必须遵守权限边界，只传递子 Agent 契约和用户权限允许的数据。
 
+子 Agent 规格可保存到个人工作区 `subagents/` 目录，规格包含名称、用途、输入/输出契约、允许工具、允许技能、知识源和上下文边界。上下文边界默认不共享长期记忆、文件和原始工具输出；只有显式允许的 key 和类别会进入 handoff。
+
 当前后端提供 `/api/orchestration/**` 编排接口：
 
 | API | 用途 |
 |---|---|
 | `POST /api/orchestration/agents` | 注册专家 Agent，保存用途、契约、权限、工具、知识访问和归属人 |
-| `POST /api/orchestration/route` | Supervisor 根据任务意图、权限和 Agent 能力路由 |
-| `GET /api/orchestration/agents/{agentId}/tool` | 将已批准子 Agent 暴露为 Agent-as-Tool |
-| `GET /api/orchestration/traces` | 查询 Supervisor 决策、子 Agent 调用、handoff 和升级 trace |
+| `POST /api/orchestration/route` | Supervisor 根据任务意图、权限、Agent 能力和上下文边界路由，可选择同步或后台委派 |
+| `GET /api/orchestration/agents/{agentId}/tool` | 将已批准子 Agent 暴露为 Agent-as-Tool，并复用工具权限、参数校验、审计和 trace |
+| `GET /api/orchestration/traces` | 查询 Supervisor 决策、候选 Agent、子 Agent 调用、handoff、失败和结果组装 trace |
 
 注册专家 Agent 示例：
 
@@ -680,7 +682,15 @@ curl -X POST http://localhost:8080/api/orchestration/agents \
     "outputContract": "grounded answer with citations",
     "requiredRoles": ["employee"],
     "allowedTools": ["crm.customer.lookup"],
+    "allowedSkills": ["policy-search"],
     "allowedKnowledgeSources": ["policy-handbook"],
+    "contextBoundary": {
+      "shareMemory": false,
+      "shareFiles": false,
+      "shareToolOutputs": false,
+      "shareRetrievedKnowledge": true,
+      "allowedKeys": ["question", "citations"]
+    },
     "ownerId": "owner-a",
     "approved": true
   }'
@@ -704,7 +714,9 @@ curl -X POST http://localhost:8080/api/orchestration/route \
       "question": "发票多久提交？",
       "citations": ["policy-handbook:v1"],
       "secret": "不应共享"
-    }
+    },
+    "delegationMode": "SYNC",
+    "failureStrategy": "FALLBACK_TO_SUPERVISOR"
   }'
 ```
 
@@ -724,7 +736,8 @@ curl -X POST http://localhost:8080/api/orchestration/route \
 - 路由置信度。
 - 步骤执行记录。
 - handoff 记录。
-- 失败或升级原因。
+- Agent-as-Tool trace 引用。
+- 失败、升级、后台 `BACKGROUND_RUNNING` 接收态、后台完成 trace 或 fallback 原因。
 
 ## 11. 部署流程
 

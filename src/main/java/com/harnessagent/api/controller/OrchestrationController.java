@@ -66,7 +66,9 @@ public class OrchestrationController {
                 request.supervisorAgentId(),
                 request.taskIntent(),
                 request.task(),
-                request.context()));
+                request.context(),
+                request.delegationMode(),
+                request.failureStrategy()));
     }
 
     @GetMapping("/agents/{agentId}/tool")

@@ -5,13 +5,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 import com.harnessagent.tooling.domain.ToolDefinition;
+import com.harnessagent.tooling.domain.ToolSourceType;
 
 @Component
 public class DefaultToolExecutor implements ToolExecutor {
 
     @Override
     public boolean supports(ToolDefinition definition) {
-        return true;
+        return definition.sourceType() != ToolSourceType.AGENT;
     }
 
     @Override

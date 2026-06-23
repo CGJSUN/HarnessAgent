@@ -2,6 +2,8 @@ package com.harnessagent.api.request;
 
 import java.util.Map;
 import java.util.Set;
+import com.harnessagent.orchestration.domain.DelegationMode;
+import com.harnessagent.orchestration.domain.FailureStrategy;
 
 public record OrchestrationApiRequest(
         String tenantId,
@@ -11,5 +13,7 @@ public record OrchestrationApiRequest(
         String supervisorAgentId,
         String taskIntent,
         String task,
-        Map<String, Object> context) {
+        Map<String, Object> context,
+        DelegationMode delegationMode,
+        FailureStrategy failureStrategy) {
 }

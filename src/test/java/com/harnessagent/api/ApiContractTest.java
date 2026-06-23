@@ -19,6 +19,7 @@ import com.harnessagent.api.controller.ReleaseController;
 import com.harnessagent.api.controller.SessionController;
 import com.harnessagent.api.controller.ToolController;
 import com.harnessagent.api.request.ChatRequest;
+import com.harnessagent.api.request.OrchestrationApiRequest;
 import com.harnessagent.api.request.ToolExecutionApiRequest;
 import com.harnessagent.api.response.ChatResponse;
 import com.harnessagent.api.response.ErrorResponse;
@@ -29,6 +30,14 @@ import com.harnessagent.chat.domain.ChatExecutionSummary;
 import com.harnessagent.chat.domain.ChatResult;
 import com.harnessagent.chat.domain.ContentBlock;
 import com.harnessagent.chat.application.ChatService;
+import com.harnessagent.orchestration.application.OrchestrationService;
+import com.harnessagent.orchestration.domain.DelegationMode;
+import com.harnessagent.orchestration.domain.FailureStrategy;
+import com.harnessagent.orchestration.domain.OrchestrationRequest;
+import com.harnessagent.orchestration.domain.OrchestrationResult;
+import com.harnessagent.orchestration.domain.OrchestrationStatus;
+import com.harnessagent.orchestration.domain.OrchestrationTrace;
+import com.harnessagent.orchestration.domain.RouteDecision;
 import com.harnessagent.rag.application.PersonalMemoryService;
 import com.harnessagent.rag.domain.KnowledgeCitation;
 import com.harnessagent.security.domain.IdentityProviderType;
@@ -233,6 +242,58 @@ class ApiContractTest {
                         request))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("agentId");
+    }
+
+    @Test
+    void orchestrationControllerPassesDelegationAndFailureControls() {
+        OrchestrationService orchestrationService = mock(OrchestrationService.class);
+        ApiIdentityResolver identityResolver = mock(ApiIdentityResolver.class);
+        SecurityPrincipal principal = new SecurityPrincipal(
+                "tenant-a",
+                "trusted-user",
+                IdentityProviderType.INTERNAL,
+                Set.of("employee"),
+                Set.of("support"));
+        when(identityResolver.resolve(any(), any(), any(), any(), any()))
+                .thenReturn(principal);
+        when(orchestrationService.orchestrate(any()))
+                .thenReturn(new OrchestrationResult(
+                        new RouteDecision("", 0d, OrchestrationStatus.ESCALATED, "test"),
+                        new OrchestrationTrace(
+                                null,
+                                Instant.now(),
+                                "tenant-a",
+                                "trusted-user",
+                                "supervisor",
+                                "",
+                                "intent",
+                                0d,
+                                OrchestrationStatus.ESCALATED,
+                                List.of(),
+                                List.of(),
+                                List.of(),
+                                Map.of())));
+        OrchestrationController controller = new OrchestrationController(orchestrationService, identityResolver);
+
+        controller.route(
+                Map.of(),
+                new OrchestrationApiRequest(
+                        "tenant-a",
+                        "body-user",
+                        Set.of("body-role"),
+                        Set.of("body-dept"),
+                        "supervisor",
+                        "intent",
+                        "task",
+                        Map.of("question", "q"),
+                        DelegationMode.BACKGROUND,
+                        FailureStrategy.FALLBACK_TO_SUPERVISOR));
+
+        ArgumentCaptor<OrchestrationRequest> command = ArgumentCaptor.forClass(OrchestrationRequest.class);
+        verify(orchestrationService).orchestrate(command.capture());
+        assertThat(command.getValue().principal()).isEqualTo(principal);
+        assertThat(command.getValue().delegationMode()).isEqualTo(DelegationMode.BACKGROUND);
+        assertThat(command.getValue().failureStrategy()).isEqualTo(FailureStrategy.FALLBACK_TO_SUPERVISOR);
     }
 
     @Test

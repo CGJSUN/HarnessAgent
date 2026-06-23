@@ -8,4 +8,11 @@ public interface ToolExecutor {
     boolean supports(ToolDefinition definition);
 
     Map<String, Object> execute(ToolDefinition definition, Map<String, Object> parameters);
+
+    default Map<String, Object> execute(
+            ToolDefinition definition,
+            Map<String, Object> parameters,
+            ToolExecutionCommand command) {
+        return execute(definition, parameters);
+    }
 }

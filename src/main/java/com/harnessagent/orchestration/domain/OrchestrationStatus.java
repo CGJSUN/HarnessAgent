@@ -4,6 +4,8 @@ public enum OrchestrationStatus {
     PLANNED,
     ROUTED,
     EXECUTED,
+    BACKGROUND_RUNNING,
+    BACKGROUND_COMPLETED,
     HANDOFF,
     ESCALATED,
     BLOCKED
