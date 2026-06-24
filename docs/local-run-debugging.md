@@ -66,8 +66,33 @@ mvn -o -Dmaven.test.skip=true spring-boot:run
 切到真实模型 provider 时再配置对应 key：
 
 ```bash
+export DEEPSEEK_API_KEY=...
 export DASHSCOPE_API_KEY=...
 export OPENAI_API_KEY=...
+```
+
+本地切到 DeepSeek 时，默认配置里已经有 `deepseek` provider，只需要给 Agent 增加最小覆盖：
+
+```yaml
+harness-agent:
+  agents:
+    personal-assistant:
+      model-provider: deepseek
+      model-name: deepseek-v4-pro
+      fallback-providers: [echo]
+```
+
+`deepseek` provider 默认模型是 `deepseek-v4-flash`，Agent 级 `model-name` 可按需覆盖为 `deepseek-v4-pro`。不要把 `deepseek-chat` 或 `deepseek-reasoner` 写成新配置默认值，它们将在北京时间 2026-07-24 23:59 弃用。没有配置 `DEEPSEEK_API_KEY` 时，默认 `echo` 启动不受影响；只有切到 DeepSeek 并创建模型实例时才会报缺少 key。
+
+回退到本地 echo 时，删除上述覆盖，或把 Agent 配置改回：
+
+```yaml
+harness-agent:
+  agents:
+    personal-assistant:
+      model-provider: echo
+      model-name: echo-local
+      fallback-providers: []
 ```
 
 ## 3. 后端 Smoke

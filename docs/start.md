@@ -77,7 +77,7 @@ HarnessAgent + AgentScope Java v2
 
 - JDK 17 或更高版本。
 - Maven 3.9 或兼容版本。
-- 可选：真实模型提供方 API key，例如 `DASHSCOPE_API_KEY`。
+- 可选：真实模型提供方 API key，例如 `DEEPSEEK_API_KEY`、`DASHSCOPE_API_KEY` 或 `OPENAI_API_KEY`。
 
 检查 Java：
 
@@ -310,15 +310,21 @@ curl -X POST http://localhost:8080/api/tools/execute \
 harness-agent:
   agents:
     personal-assistant:
-      model-provider: dashscope
-      model-name: qwen-plus
+      model-provider: deepseek
+      model-name: deepseek-v4-pro
       # 可选：覆盖 provider 默认密钥引用；值通过 SecretStore 解析，不写入日志。
-      model-api-key-ref: env:PERSONAL_DASHSCOPE_KEY
+      model-api-key-ref: env:DEEPSEEK_API_KEY
       fallback-providers: [echo]
       budget:
         request-limit: 1000
         token-limit: 1000000
   model-providers:
+    deepseek:
+      type: openai-compatible
+      model-name: deepseek-v4-flash
+      api-key-ref: env:DEEPSEEK_API_KEY
+      base-url: https://api.deepseek.com
+      endpoint-path: /chat/completions
     dashscope:
       type: dashscope
       model-name: qwen-plus
@@ -355,6 +361,7 @@ harness-agent:
     fallback:
       retryable-status-codes: [429, 500, 502, 503, 504]
       providers:
+        deepseek: [echo]
         dashscope: [echo]
     timeouts:
       model-timeout: 2m
@@ -362,6 +369,8 @@ harness-agent:
       tool-timeout: 30s
       sandbox-timeout: 10m
 ```
+
+默认 Agent 仍使用 `echo`，只有显式把 `model-provider` 改为 `deepseek` 时才需要 `DEEPSEEK_API_KEY`。DeepSeek provider 默认模型是 `deepseek-v4-flash`；需要更强模型时，可以在 Agent 配置里覆盖为 `deepseek-v4-pro`。不要把 `deepseek-chat` 或 `deepseek-reasoner` 写成新配置默认值，DeepSeek 官方文档已标注它们将在北京时间 2026-07-24 23:59 弃用。
 
 生产约束：
 
@@ -413,6 +422,7 @@ harness-agent:
 
 模型 key、个人系统凭证和工具 token 必须通过批准的 secret 来源解析，例如：
 
+- `env:DEEPSEEK_API_KEY`
 - `env:DASHSCOPE_API_KEY`
 - Kubernetes Secret 注入的环境变量。
 - 本地或宿主提供的密钥服务。

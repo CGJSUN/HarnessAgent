@@ -2,6 +2,7 @@ package com.harnessagent.model;
 
 import com.harnessagent.config.HarnessAgentProperties;
 import com.harnessagent.security.persistence.SecretStore;
+import io.agentscope.core.formatter.openai.DeepSeekFormatter;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.OpenAIChatModel;
 import org.springframework.stereotype.Component;
@@ -49,6 +50,9 @@ public class OpenAICompatibleModelProvider implements ModelProvider {
         }
         if (definition.getEndpointPath() != null && !definition.getEndpointPath().isBlank()) {
             builder.endpointPath(definition.getEndpointPath().trim());
+        }
+        if ("deepseek".equalsIgnoreCase(providerId)) {
+            builder.formatter(new DeepSeekFormatter());
         }
         return builder.build();
     }

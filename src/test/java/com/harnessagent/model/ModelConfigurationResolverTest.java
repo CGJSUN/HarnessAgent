@@ -4,8 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.harnessagent.config.HarnessAgentProperties;
 import com.harnessagent.production.config.ProductionRuntimeProperties;
+import java.io.IOException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.ClassPathResource;
 
 class ModelConfigurationResolverTest {
 
@@ -84,5 +90,67 @@ class ModelConfigurationResolverTest {
         assertThat(selection.providerType()).isEqualTo("openai-compatible");
         assertThat(selection.modelName()).isEqualTo("gpt-4o-mini");
         assertThat(selection.apiKeyRef()).isEqualTo("env:OPENAI_API_KEY");
+    }
+
+    @Test
+    void defaultConfigurationDefinesDeepSeekWithoutChangingDefaultProvider() throws IOException {
+        HarnessAgentProperties properties = loadApplicationProperties();
+
+        assertThat(properties.getDefaultProvider()).isEqualTo("echo");
+        assertThat(properties.getAgents().get("personal-assistant").getModelProvider()).isEqualTo("echo");
+        HarnessAgentProperties.ModelProviderDefinition deepseek =
+                properties.getModelProviders().get("deepseek");
+        assertThat(deepseek).isNotNull();
+        assertThat(deepseek.getType()).isEqualTo("openai-compatible");
+        assertThat(deepseek.getModelName()).isEqualTo("deepseek-v4-flash");
+        assertThat(deepseek.getApiKeyRef()).isEqualTo("env:DEEPSEEK_API_KEY");
+        assertThat(deepseek.getBaseUrl()).isEqualTo("https://api.deepseek.com");
+        assertThat(deepseek.getEndpointPath()).isEqualTo("/chat/completions");
+    }
+
+    @Test
+    void resolvesDeepSeekAliasWithAgentModelOverrideAndFallback() {
+        HarnessAgentProperties properties = new HarnessAgentProperties();
+        HarnessAgentProperties.AgentDefinition agent = new HarnessAgentProperties.AgentDefinition();
+        agent.setModelProvider("deepseek");
+        agent.setModelName("deepseek-v4-pro");
+        agent.setFallbackProviders(List.of("echo"));
+        properties.getAgents().put("personal-assistant", agent);
+        HarnessAgentProperties.ModelProviderDefinition deepseek =
+                new HarnessAgentProperties.ModelProviderDefinition();
+        deepseek.setType("openai-compatible");
+        deepseek.setModelName("deepseek-v4-flash");
+        deepseek.setApiKeyRef("env:DEEPSEEK_API_KEY");
+        deepseek.setBaseUrl("https://api.deepseek.com");
+        deepseek.setEndpointPath("/chat/completions");
+        properties.getModelProviders().put("deepseek", deepseek);
+
+        ModelSelection selection = new ModelConfigurationResolver(properties, new ProductionRuntimeProperties())
+                .resolve("personal-assistant");
+
+        assertThat(selection.providerId()).isEqualTo("deepseek");
+        assertThat(selection.providerType()).isEqualTo("openai-compatible");
+        assertThat(selection.modelName()).isEqualTo("deepseek-v4-pro");
+        assertThat(selection.apiKeyRef()).isEqualTo("env:DEEPSEEK_API_KEY");
+        assertThat(selection.fallbackProviders()).containsExactly("echo");
+
+        ModelSelection fallback = new ModelConfigurationResolver(properties, new ProductionRuntimeProperties())
+                .resolveFallback("personal-assistant", "deepseek");
+        assertThat(fallback.providerId()).isEqualTo("deepseek");
+        assertThat(fallback.providerType()).isEqualTo("openai-compatible");
+        assertThat(fallback.modelName()).isEqualTo("deepseek-v4-flash");
+        assertThat(fallback.apiKeyRef()).isEqualTo("env:DEEPSEEK_API_KEY");
+        assertThat(fallback.fallbackProviders()).isEmpty();
+    }
+
+    private static HarnessAgentProperties loadApplicationProperties() throws IOException {
+        StandardEnvironment environment = new StandardEnvironment();
+        YamlPropertySourceLoader loader = new YamlPropertySourceLoader();
+        loader.load("application.yml", new ClassPathResource("application.yml"))
+                .forEach(source -> environment.getPropertySources().addLast(source));
+        ConfigurationPropertySources.attach(environment);
+        return Binder.get(environment)
+                .bind("harness-agent", HarnessAgentProperties.class)
+                .orElseThrow(() -> new IllegalStateException("harness-agent config did not bind"));
     }
 }

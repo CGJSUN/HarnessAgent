@@ -10,6 +10,7 @@ import com.harnessagent.config.HarnessAgentProperties;
 import com.harnessagent.model.EchoModelProvider;
 import com.harnessagent.model.ModelConfigurationResolver;
 import com.harnessagent.model.ModelProvider;
+import com.harnessagent.model.ModelProviderRequest;
 import com.harnessagent.model.ModelProviderRegistry;
 import com.harnessagent.production.config.ProductionRuntimeProperties;
 import com.harnessagent.production.health.ProductionRuntimeValidator;
@@ -142,6 +143,58 @@ class PersonalHarnessAgentRuntimeTest {
         assertThat(failingProvider.calls()).isEqualTo(1);
     }
 
+    @Test
+    void fallsBackFromDeepSeekAliasThroughOpenAiCompatibleProvider() {
+        HarnessAgentProperties properties = new HarnessAgentProperties();
+        properties.getState().setLocalDirectory(tempDir.resolve("sessions"));
+        HarnessAgentProperties.AgentDefinition agent = new HarnessAgentProperties.AgentDefinition();
+        agent.setName("agent-a");
+        agent.setSystemPrompt("Answer as a personal assistant.");
+        agent.setModelProvider("deepseek");
+        agent.setModelName("deepseek-v4-pro");
+        agent.setWorkspace(tempDir.resolve("workspace").toString());
+        agent.setFallbackProviders(List.of("echo"));
+        properties.getAgents().put("agent-a", agent);
+        HarnessAgentProperties.ModelProviderDefinition deepseek = new HarnessAgentProperties.ModelProviderDefinition();
+        deepseek.setType("openai-compatible");
+        deepseek.setModelName("deepseek-v4-flash");
+        deepseek.setApiKeyRef("env:DEEPSEEK_API_KEY");
+        deepseek.setBaseUrl("https://api.deepseek.com");
+        deepseek.setEndpointPath("/chat/completions");
+        HarnessAgentProperties.ModelProviderDefinition echo = new HarnessAgentProperties.ModelProviderDefinition();
+        echo.setModelName("echo-local");
+        properties.getModelProviders().put("deepseek", deepseek);
+        properties.getModelProviders().put("echo", echo);
+        ProductionRuntimeProperties runtimeProperties = new ProductionRuntimeProperties();
+        RecordingFailingOpenAICompatibleProvider failingProvider = new RecordingFailingOpenAICompatibleProvider();
+        PersonalHarnessAgentRuntime runtime = new PersonalHarnessAgentRuntime(
+                properties,
+                new ModelProviderRegistry(List.of(failingProvider, new EchoModelProvider())),
+                new AgentSessionFactory(
+                        properties,
+                        new ProductionRuntimeValidator(runtimeProperties),
+                        plan -> new LocalJsonAgentStateStore(
+                                new OwnerStateKeyStrategy(),
+                                StateStorePlan.local(tempDir.resolve("state").toString()))),
+                new WorkspacePolicyService(runtimeProperties),
+                new WorkspaceSnapshotService(new EmptyObjectProvider<>()),
+                new RuntimeTimeoutGuard(runtimeProperties),
+                RuntimeTelemetry.noop(),
+                new ModelConfigurationResolver(properties, runtimeProperties),
+                new ModelFallbackPlanner(runtimeProperties));
+
+        AgentReply reply = runtime.complete(new AgentRunRequest(
+                        new RuntimeContextFactory().create("owner-scope-a", "user-a", "agent-a", "session-a"),
+                        List.of(ChatMessage.user("hello"))))
+                .block();
+
+        assertThat(reply.content()).contains("Echo: hello");
+        assertThat(failingProvider.calls()).isEqualTo(1);
+        assertThat(failingProvider.lastRequest().providerId()).isEqualTo("deepseek");
+        assertThat(failingProvider.lastRequest().modelName()).isEqualTo("deepseek-v4-pro");
+        assertThat(failingProvider.lastRequest().apiKeyRef()).isEqualTo("env:DEEPSEEK_API_KEY");
+    }
+
     private static Msg message(String text) {
         return Msg.builder()
                 .name("assistant")
@@ -167,6 +220,38 @@ class PersonalHarnessAgentRuntimeTest {
 
         private int calls() {
             return calls;
+        }
+    }
+
+    private static class RecordingFailingOpenAICompatibleProvider implements ModelProvider {
+
+        private int calls;
+        private ModelProviderRequest lastRequest;
+
+        @Override
+        public String id() {
+            return "openai-compatible";
+        }
+
+        @Override
+        public Model createModel(String requestedModelName) {
+            calls++;
+            return new FailingModel(requestedModelName);
+        }
+
+        @Override
+        public Model createModel(ModelProviderRequest request) {
+            lastRequest = request;
+            calls++;
+            return new FailingModel(request.modelName());
+        }
+
+        private int calls() {
+            return calls;
+        }
+
+        private ModelProviderRequest lastRequest() {
+            return lastRequest;
         }
     }
 

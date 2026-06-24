@@ -567,6 +567,47 @@ class ChatServiceTest {
     }
 
     @Test
+    void routesDeepSeekAgentThroughExistingChatContractAndBudgetScope() {
+        HarnessAgentProperties properties = new HarnessAgentProperties();
+        properties.setDefaultProvider("echo");
+        HarnessAgentProperties.AgentDefinition agent = new HarnessAgentProperties.AgentDefinition();
+        agent.setModelProvider("deepseek");
+        agent.setModelName("deepseek-v4-pro");
+        properties.getAgents().put("agent-a", agent);
+        HarnessAgentProperties.ModelProviderDefinition deepseek = new HarnessAgentProperties.ModelProviderDefinition();
+        deepseek.setType("openai-compatible");
+        deepseek.setModelName("deepseek-v4-flash");
+        deepseek.setApiKeyRef("env:DEEPSEEK_API_KEY");
+        properties.getModelProviders().put("deepseek", deepseek);
+        ProductionRuntimeProperties runtimeProperties = new ProductionRuntimeProperties();
+        runtimeProperties.getBudget().setRequestLimit(100);
+        runtimeProperties.getBudget().setTokenLimit(1000);
+        RecordingBudgetCounterStore budgetStore = new RecordingBudgetCounterStore();
+        ChatService service = new ChatService(
+                contextFactory,
+                sessionStore,
+                agentRuntime,
+                knowledgeService,
+                RuntimeTelemetry.noop(),
+                new BudgetLimiter(runtimeProperties, budgetStore),
+                properties,
+                new ModelConfigurationResolver(properties, runtimeProperties),
+                AgentSessionRecoveryService.noop(sessionStore),
+                new PromptInjectionGuard());
+
+        ChatResult result = service.chat(ownerCommand("hello deepseek")).block();
+
+        assertThat(result.message()).isEqualTo("answer:hello deepseek");
+        assertThat(result.sessionId()).isEqualTo("session-a");
+        assertThat(result.contentBlocks()).singleElement()
+                .satisfies(block -> assertThat(block.text()).isEqualTo("answer:hello deepseek"));
+        assertThat(budgetStore.keys()).contains("provider:deepseek");
+        assertThat(budgetStore.keys()).doesNotContain("provider:echo");
+        assertThat(agentRuntime.requests).hasSize(1);
+        assertThat(agentRuntime.requests.get(0).context().agentId()).isEqualTo("agent-a");
+    }
+
+    @Test
     void recordsPendingExecutionDuringAgentCallAndClearsItAfterSuccess() {
         InMemoryAgentStateStore stateStore = new InMemoryAgentStateStore(
                 new OwnerStateKeyStrategy(),
