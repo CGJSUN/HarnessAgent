@@ -7,8 +7,8 @@ import java.util.UUID;
 
 public record ToolPendingConfirmation(
         String confirmationId,
-        String tenantId,
-        String userId,
+        String ownerScopeId,
+        String ownerId,
         String agentId,
         String sessionId,
         String toolId,
@@ -29,8 +29,8 @@ public record ToolPendingConfirmation(
 
     public ToolPendingConfirmation {
         confirmationId = defaultString(confirmationId, UUID.randomUUID().toString());
-        tenantId = require(tenantId, "tenantId");
-        userId = require(userId, "userId");
+        ownerScopeId = require(ownerScopeId, "ownerScopeId");
+        ownerId = require(ownerId, "ownerId");
         agentId = require(agentId, "agentId");
         sessionId = require(sessionId, "sessionId");
         toolId = require(toolId, "toolId");
@@ -50,8 +50,8 @@ public record ToolPendingConfirmation(
     }
 
     public static ToolPendingConfirmation pending(
-            String tenantId,
-            String userId,
+            String ownerScopeId,
+            String ownerId,
             String agentId,
             String sessionId,
             ToolDefinition tool,
@@ -63,8 +63,8 @@ public record ToolPendingConfirmation(
         Instant now = Instant.now();
         return new ToolPendingConfirmation(
                 null,
-                tenantId,
-                userId,
+                ownerScopeId,
+                ownerId,
                 agentId,
                 sessionId,
                 tool.id(),
@@ -87,8 +87,8 @@ public record ToolPendingConfirmation(
     public ToolPendingConfirmation withOperationSummary(Map<String, Object> nextOperationSummary) {
         return new ToolPendingConfirmation(
                 confirmationId,
-                tenantId,
-                userId,
+                ownerScopeId,
+                ownerId,
                 agentId,
                 sessionId,
                 toolId,
@@ -120,8 +120,8 @@ public record ToolPendingConfirmation(
         Instant now = Instant.now();
         return new ToolPendingConfirmation(
                 confirmationId,
-                tenantId,
-                userId,
+                ownerScopeId,
+                ownerId,
                 agentId,
                 sessionId,
                 toolId,

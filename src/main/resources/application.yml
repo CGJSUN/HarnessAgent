@@ -17,6 +17,8 @@ harness-agent:
     local-directory: .harness-agent/sessions
   memory-rag:
     provider: local
+  legacy:
+    request-adapter-enabled: false
   agents:
     personal-assistant:
       name: personal-assistant
@@ -30,12 +32,12 @@ harness-agent:
       budget:
         request-limit: 1000
         token-limit: 1000000
-    enterprise-assistant:
-      name: enterprise-assistant
-      system-prompt: 你是企业助手，回答要准确、克制，并遵守企业权限与工具边界。
+    personal-reference-agent:
+      name: personal-reference-agent
+      system-prompt: 你是个人参考 Agent，回答要准确、克制，并遵守 owner 工具与记忆边界。
       model-provider: echo
       model-name: echo-local
-      workspace: .harness-agent/workspaces/enterprise-assistant
+      workspace: .harness-agent/workspaces/personal-reference-agent
       workload-type: office
       compaction: true
       max-iters: 3
@@ -67,7 +69,7 @@ harness-agent:
       session: local-json
       knowledge: local-json
       tool: local-json
-      audit: local-json
+      activity: local-json
       telemetry: local-json
       budget-counter: local-json
     schema:
@@ -100,7 +102,7 @@ harness-agent:
       timeout: 5s
       include-failure-reasons: true
     retention:
-      audit: 180d
+      activity: 180d
       telemetry: 30d
       snapshots: 14d
     budget:

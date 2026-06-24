@@ -5,7 +5,7 @@ import java.util.UUID;
 
 public record SnapshotMetadata(
         String id,
-        String tenantId,
+        String ownerScopeId,
         String agentId,
         String sessionId,
         String taskId,
@@ -15,7 +15,7 @@ public record SnapshotMetadata(
 
     public SnapshotMetadata {
         id = id == null || id.isBlank() ? UUID.randomUUID().toString() : id.trim();
-        tenantId = require(tenantId, "tenantId");
+        ownerScopeId = require(ownerScopeId, "ownerScopeId");
         agentId = require(agentId, "agentId");
         sessionId = require(sessionId, "sessionId");
         taskId = taskId == null ? "" : taskId.trim();
@@ -25,7 +25,7 @@ public record SnapshotMetadata(
     }
 
     public SnapshotMetadata withLocation(SnapshotStoreType backendType, String location) {
-        return new SnapshotMetadata(id, tenantId, agentId, sessionId, taskId, createdAt, backendType, location);
+        return new SnapshotMetadata(id, ownerScopeId, agentId, sessionId, taskId, createdAt, backendType, location);
     }
 
     private static String require(String value, String field) {

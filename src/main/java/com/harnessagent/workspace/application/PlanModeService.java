@@ -39,7 +39,7 @@ public class PlanModeService {
         if (safeSteps.isEmpty()) {
             throw new IllegalArgumentException("plan steps are required");
         }
-        String id = "plan-" + sha256(context.userId()
+        String id = "plan-" + sha256(context.ownerId()
                 + ":" + context.agentId()
                 + ":" + context.sessionId()
                 + ":" + goal).substring(0, 16);
@@ -47,7 +47,7 @@ public class PlanModeService {
         String uri = "workspace://" + relativePath;
         PersonalPlan plan = new PersonalPlan(
                 id,
-                context.userId(),
+                context.ownerId(),
                 context.agentId(),
                 context.sessionId(),
                 goal,
@@ -128,7 +128,7 @@ public class PlanModeService {
             String fileName = file.getFileName().toString();
             String id = fileName.endsWith(".md") ? fileName.substring(0, fileName.length() - 3) : fileName;
             String goal = readPrefixedLine(lines, "# Plan: ", id);
-            String ownerId = readPrefixedLine(lines, "- Owner: ", context.userId());
+            String ownerId = readPrefixedLine(lines, "- Owner: ", context.ownerId());
             String agentId = readPrefixedLine(lines, "- Agent: ", context.agentId());
             String sessionId = readPrefixedLine(lines, "- Session: ", context.sessionId());
             Pattern stepPattern = Pattern.compile("^\\d+\\.\\s+(.+)$");

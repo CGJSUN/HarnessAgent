@@ -5,7 +5,7 @@ import java.util.Set;
 public record KnowledgeChunk(
         String id,
         String sourceId,
-        String tenantId,
+        String ownerScopeId,
         String title,
         String version,
         int chunkIndex,
@@ -17,13 +17,13 @@ public record KnowledgeChunk(
     public KnowledgeChunk(
             String id,
             String sourceId,
-            String tenantId,
+            String ownerScopeId,
             String title,
             String version,
             int chunkIndex,
             String content,
             Set<String> tokens) {
-        this(id, sourceId, tenantId, title, version, chunkIndex, content, tokens, KnowledgeSourceType.INLINE_TEXT, "");
+        this(id, sourceId, ownerScopeId, title, version, chunkIndex, content, tokens, KnowledgeSourceType.INLINE_TEXT, "");
     }
 
     public KnowledgeChunk {

@@ -13,7 +13,6 @@ import com.harnessagent.workspace.application.PersonalWorkspaceService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -36,11 +35,8 @@ class SkillControllerTest {
         assertThatThrownBy(() -> controller.refreshLocalRepository(
                         Map.of(),
                         new SkillRepositoryRefreshRequest(
-                                "personal",
                                 "owner-a",
                                 "agent-a",
-                                Set.of(),
-                                Set.of(),
                                 outside.toString())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("personal skills directory");

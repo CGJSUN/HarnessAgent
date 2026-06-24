@@ -29,9 +29,9 @@ public class InMemorySessionStore implements SessionStore {
     }
 
     @Override
-    public List<SessionSummary> listSessions(String tenantId, String userId, String agentId) {
+    public List<SessionSummary> listSessions(String ownerScopeId, String ownerId, String agentId) {
         return sessions.entrySet().stream()
-                .filter(entry -> entry.getKey().matches(tenantId, userId, agentId))
+                .filter(entry -> entry.getKey().matches(ownerScopeId, ownerId, agentId))
                 .map(entry -> toSummary(entry.getKey(), entry.getValue()))
                 .sorted(Comparator.comparing(SessionSummary::lastMessageAt).reversed())
                 .toList();
@@ -53,18 +53,18 @@ public class InMemorySessionStore implements SessionStore {
                 .max(Comparator.naturalOrder())
                 .orElse(Instant.EPOCH);
         return new SessionSummary(
-                key.tenantId(), key.userId(), key.agentId(), key.sessionId(), messages.size(), lastMessageAt);
+                key.ownerScopeId(), key.ownerId(), key.agentId(), key.sessionId(), messages.size(), lastMessageAt);
     }
 
-    private record SessionKey(String tenantId, String userId, String agentId, String sessionId) {
+    private record SessionKey(String ownerScopeId, String ownerId, String agentId, String sessionId) {
         static SessionKey from(RuntimeContextScope context) {
             return new SessionKey(
-                    context.tenantId(), context.userId(), context.agentId(), context.sessionId());
+                    context.ownerScopeId(), context.ownerId(), context.agentId(), context.sessionId());
         }
 
-        boolean matches(String tenantId, String userId, String agentId) {
-            return this.tenantId.equals(tenantId)
-                    && this.userId.equals(userId)
+        boolean matches(String ownerScopeId, String ownerId, String agentId) {
+            return this.ownerScopeId.equals(ownerScopeId)
+                    && this.ownerId.equals(ownerId)
                     && (agentId == null || agentId.isBlank() || this.agentId.equals(agentId));
         }
     }

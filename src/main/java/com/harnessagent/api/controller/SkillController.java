@@ -7,7 +7,7 @@ import com.harnessagent.api.response.PersonalSkillResponse;
 import com.harnessagent.api.response.SkillValidationResponse;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.runtime.RuntimeContextScope;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.skill.application.PersonalSkillService;
 import com.harnessagent.workspace.application.PersonalWorkspaceService;
 import com.harnessagent.workspace.domain.PersonalWorkspaceLayout;
@@ -49,11 +49,10 @@ public class SkillController {
     @GetMapping
     public List<PersonalSkillResponse> listSkills(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam(required = false) String skillName) {
-        SecurityPrincipal principal = resolve(headers, tenantId, userId);
-        return skillService.list(principal.tenantId(), principal.userId(), skillName).stream()
+        OwnerPrincipal principal = resolve(headers, ownerId);
+        return skillService.list(principal.scopeId(), principal.ownerId(), skillName).stream()
                 .map(PersonalSkillResponse::from)
                 .toList();
     }
@@ -62,12 +61,9 @@ public class SkillController {
     public List<PersonalSkillResponse> refreshLocalRepository(
             @RequestHeader Map<String, String> headers,
             @RequestBody SkillRepositoryRefreshRequest request) {
-        SecurityPrincipal principal = identityResolver.resolve(
+        OwnerPrincipal principal = identityResolver.resolve(
                 headers,
-                request.tenantId(),
-                request.userId(),
-                safeSet(request.roles()),
-                safeSet(request.departments()));
+                request.ownerId());
         return skillService.refreshLocalRepository(
                         principal,
                         authorizedSkillPath(principal, request.agentId(), request.repositoryRoot(), true))
@@ -80,12 +76,9 @@ public class SkillController {
     public SkillValidationResponse validateLocalSkill(
             @RequestHeader Map<String, String> headers,
             @RequestBody SkillValidationRequest request) {
-        SecurityPrincipal principal = identityResolver.resolve(
+        OwnerPrincipal principal = identityResolver.resolve(
                 headers,
-                request.tenantId(),
-                request.userId(),
-                safeSet(request.roles()),
-                safeSet(request.departments()));
+                request.ownerId());
         return SkillValidationResponse.from(
                 skillService.validateLocalSkill(
                         principal,
@@ -97,9 +90,8 @@ public class SkillController {
             @RequestHeader Map<String, String> headers,
             @PathVariable String skillName,
             @PathVariable String version,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return PersonalSkillResponse.from(skillService.enable(resolve(headers, tenantId, userId), skillName, version));
+            @RequestParam String ownerId) {
+        return PersonalSkillResponse.from(skillService.enable(resolve(headers, ownerId), skillName, version));
     }
 
     @PatchMapping("/{skillName}/{version}/disable")
@@ -107,9 +99,8 @@ public class SkillController {
             @RequestHeader Map<String, String> headers,
             @PathVariable String skillName,
             @PathVariable String version,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return PersonalSkillResponse.from(skillService.disable(resolve(headers, tenantId, userId), skillName, version));
+            @RequestParam String ownerId) {
+        return PersonalSkillResponse.from(skillService.disable(resolve(headers, ownerId), skillName, version));
     }
 
     @PatchMapping("/{skillName}/{version}/upgrade")
@@ -117,9 +108,8 @@ public class SkillController {
             @RequestHeader Map<String, String> headers,
             @PathVariable String skillName,
             @PathVariable String version,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return PersonalSkillResponse.from(skillService.upgrade(resolve(headers, tenantId, userId), skillName, version));
+            @RequestParam String ownerId) {
+        return PersonalSkillResponse.from(skillService.upgrade(resolve(headers, ownerId), skillName, version));
     }
 
     @PatchMapping("/{skillName}/{version}/rollback")
@@ -127,9 +117,8 @@ public class SkillController {
             @RequestHeader Map<String, String> headers,
             @PathVariable String skillName,
             @PathVariable String version,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return PersonalSkillResponse.from(skillService.rollback(resolve(headers, tenantId, userId), skillName, version));
+            @RequestParam String ownerId) {
+        return PersonalSkillResponse.from(skillService.rollback(resolve(headers, ownerId), skillName, version));
     }
 
     @PatchMapping("/{skillName}/{version}/lock")
@@ -137,28 +126,24 @@ public class SkillController {
             @RequestHeader Map<String, String> headers,
             @PathVariable String skillName,
             @PathVariable String version,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return PersonalSkillResponse.from(skillService.lock(resolve(headers, tenantId, userId), skillName, version));
+            @RequestParam String ownerId) {
+        return PersonalSkillResponse.from(skillService.lock(resolve(headers, ownerId), skillName, version));
     }
 
-    private SecurityPrincipal resolve(Map<String, String> headers, String tenantId, String userId) {
-        return identityResolver.resolve(headers, tenantId, userId, Set.of(), Set.of());
+    private OwnerPrincipal resolve(Map<String, String> headers, String ownerId) {
+        return identityResolver.resolve(headers, ownerId);
     }
 
     private Path authorizedSkillPath(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             String agentId,
             String requestedPath,
             boolean defaultToSkillsRoot) {
         if (agentId == null || agentId.isBlank()) {
             throw new IllegalArgumentException("agentId is required");
         }
-        RuntimeContextScope context = runtimeContextFactory.create(
-                principal.tenantId(),
-                principal.userId(),
-                agentId,
-                "skill-repository");
+        RuntimeContextScope context = runtimeContextFactory.createPersonal(
+                principal.ownerId(), agentId, "skill-repository");
         PersonalWorkspaceLayout layout = workspaceService.initialize(context);
         Path skillsRoot = layout.skillsDirectory().toAbsolutePath().normalize();
         Path requested;

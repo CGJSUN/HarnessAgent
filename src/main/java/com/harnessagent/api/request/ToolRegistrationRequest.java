@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.Set;
 
 public record ToolRegistrationRequest(
-        String tenantId,
         String name,
         String description,
         String ownerSystem,
@@ -25,9 +24,8 @@ public record ToolRegistrationRequest(
         String outputType,
         Map<String, Object> outputSchema,
         Set<String> sensitiveResultFields,
-        Set<String> allowedUsers,
+        Set<String> allowedOwnerIds,
         Set<String> allowedAgents,
-        Set<String> allowedDepartments,
-        Set<String> allowedRoles,
+        Set<String> deniedOwnerIds,
         AgentWorkloadType workloadType) {
 }

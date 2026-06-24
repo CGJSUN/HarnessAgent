@@ -8,10 +8,9 @@ import com.harnessagent.orchestration.domain.OrchestrationRequest;
 import com.harnessagent.orchestration.domain.OrchestrationResult;
 import com.harnessagent.orchestration.application.OrchestrationService;
 import com.harnessagent.orchestration.domain.OrchestrationTrace;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,15 +38,9 @@ public class OrchestrationController {
     public ExpertAgentDefinition register(
             @RequestHeader Map<String, String> headers,
             @RequestBody ExpertAgentDefinition definition) {
-        SecurityPrincipal principal = identityResolver.resolve(
+        OwnerPrincipal principal = identityResolver.resolve(
                 headers,
-                definition.tenantId(),
-                definition.ownerId(),
-                Set.of(),
-                Set.of());
-        if (!principal.roles().contains("admin")) {
-            throw new IllegalStateException("admin role is required");
-        }
+                definition.ownerId());
         return orchestrationService.register(definition);
     }
 
@@ -55,12 +48,9 @@ public class OrchestrationController {
     public OrchestrationResult route(
             @RequestHeader Map<String, String> headers,
             @RequestBody OrchestrationApiRequest request) {
-        SecurityPrincipal principal = identityResolver.resolve(
+        OwnerPrincipal principal = identityResolver.resolve(
                 headers,
-                request.tenantId(),
-                request.userId(),
-                request.roles(),
-                request.departments());
+                request.ownerId());
         return orchestrationService.orchestrate(new OrchestrationRequest(
                 principal,
                 request.supervisorAgentId(),
@@ -79,13 +69,9 @@ public class OrchestrationController {
     @GetMapping("/traces")
     public List<OrchestrationTrace> traces(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
+            @RequestParam String ownerId) {
         return orchestrationService.listTraces(identityResolver.resolve(
                 headers,
-                tenantId,
-                userId,
-                Set.of(),
-                Set.of()));
+                ownerId));
     }
 }

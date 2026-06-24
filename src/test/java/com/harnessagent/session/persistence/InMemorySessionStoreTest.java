@@ -18,25 +18,25 @@ class InMemorySessionStoreTest {
     private final InMemorySessionStore store = new InMemorySessionStore();
 
     @Test
-    void keepsMessagesIsolatedByTenantUserAgentAndSession() {
-        RuntimeContextScope base = contextFactory.create("tenant-a", "user-a", "agent-a", "session-a");
-        RuntimeContextScope otherTenant = contextFactory.create("tenant-b", "user-a", "agent-a", "session-a");
-        RuntimeContextScope otherSession = contextFactory.create("tenant-a", "user-a", "agent-a", "session-b");
+    void keepsMessagesIsolatedByOwnerAgentAndSession() {
+        RuntimeContextScope base = contextFactory.create("owner-scope-a", "user-a", "agent-a", "session-a");
+        RuntimeContextScope otherOwnerScope = contextFactory.create("owner-scope-b", "user-a", "agent-a", "session-a");
+        RuntimeContextScope otherSession = contextFactory.create("owner-scope-a", "user-a", "agent-a", "session-b");
 
         store.appendMessage(base, ChatMessage.user("hello"));
-        store.appendMessage(otherTenant, ChatMessage.user("tenant-b"));
+        store.appendMessage(otherOwnerScope, ChatMessage.user("owner-scope-b"));
         store.appendMessage(otherSession, ChatMessage.user("session-b"));
 
         assertThat(store.listMessages(base)).extracting(ChatMessage::content).containsExactly("hello");
-        assertThat(store.listSessions("tenant-a", "user-a", "agent-a"))
+        assertThat(store.listSessions("owner-scope-a", "user-a", "agent-a"))
                 .extracting(SessionSummary::sessionId)
                 .containsExactlyInAnyOrder("session-a", "session-b");
     }
 
     @Test
     void deletesOnlyTargetSession() {
-        RuntimeContextScope first = contextFactory.create("tenant-a", "user-a", "agent-a", "session-a");
-        RuntimeContextScope second = contextFactory.create("tenant-a", "user-a", "agent-a", "session-b");
+        RuntimeContextScope first = contextFactory.create("owner-scope-a", "user-a", "agent-a", "session-a");
+        RuntimeContextScope second = contextFactory.create("owner-scope-a", "user-a", "agent-a", "session-b");
         store.appendMessage(first, ChatMessage.user("first"));
         store.appendMessage(second, ChatMessage.user("second"));
 
@@ -48,7 +48,7 @@ class InMemorySessionStoreTest {
 
     @Test
     void preservesStructuredContentBlocks() {
-        RuntimeContextScope context = contextFactory.create("tenant-a", "user-a", "agent-a", "session-blocks");
+        RuntimeContextScope context = contextFactory.create("owner-scope-a", "user-a", "agent-a", "session-blocks");
         ChatMessage message = ChatMessage.assistant(List.of(
                 ContentBlock.text("summary"),
                 ContentBlock.file("workspace://files/report.pdf", "application/pdf", "report.pdf"),

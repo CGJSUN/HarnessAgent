@@ -1,7 +1,7 @@
 package com.harnessagent.skill.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.skill.domain.PersonalSkillMetadata;
 import com.harnessagent.skill.domain.PersonalSkillStatus;
 import com.harnessagent.skill.domain.SkillPermissionSet;
@@ -39,7 +39,7 @@ public class LocalSkillRepositoryAdapter {
         this.objectMapper = objectMapper == null ? new ObjectMapper().findAndRegisterModules() : objectMapper;
     }
 
-    public List<PersonalSkillMetadata> scan(SecurityPrincipal owner, Path repositoryRoot) {
+    public List<PersonalSkillMetadata> scan(OwnerPrincipal owner, Path repositoryRoot) {
         if (repositoryRoot == null || !Files.exists(repositoryRoot)) {
             return List.of();
         }
@@ -131,7 +131,7 @@ public class LocalSkillRepositoryAdapter {
         return Path.of(URI.create(metadata.source())).toAbsolutePath().normalize();
     }
 
-    private java.util.Optional<PersonalSkillMetadata> toMetadata(SecurityPrincipal owner, Path skillDirectory) {
+    private java.util.Optional<PersonalSkillMetadata> toMetadata(OwnerPrincipal owner, Path skillDirectory) {
         SkillValidationResult validation = validate(skillDirectory);
         if (!validation.valid()) {
             return java.util.Optional.empty();
@@ -139,8 +139,8 @@ public class LocalSkillRepositoryAdapter {
         SkillManifest manifest = readManifest(skillDirectory.resolve(MANIFEST_FILE));
         return java.util.Optional.of(new PersonalSkillMetadata(
                 null,
-                owner.tenantId(),
-                owner.userId(),
+                owner.scopeId(),
+                owner.ownerId(),
                 manifest.name(),
                 manifest.description(),
                 manifest.version(),

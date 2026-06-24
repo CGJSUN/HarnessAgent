@@ -6,7 +6,7 @@ import com.harnessagent.production.config.AgentWorkloadType;
 
 public record ToolDefinition(
         String id,
-        String tenantId,
+        String ownerScopeId,
         String name,
         String description,
         String ownerSystem,
@@ -19,14 +19,14 @@ public record ToolDefinition(
         ToolParameterSchema parameterSchema,
         ToolOutputSchema outputSchema,
         ToolPermissionPolicy permissionPolicy,
-        ToolAuditPolicy auditPolicy,
+        ToolActivityPolicy activityPolicy,
         AgentWorkloadType workloadType,
         Instant createdAt,
         Instant updatedAt) {
 
     public ToolDefinition {
         id = defaultString(id, UUID.randomUUID().toString());
-        tenantId = require(tenantId, "tenantId");
+        ownerScopeId = require(ownerScopeId, "ownerScopeId");
         name = require(name, "name");
         description = defaultString(description, "");
         ownerSystem = require(ownerSystem, "ownerSystem");
@@ -37,7 +37,7 @@ public record ToolDefinition(
         parameterSchema = parameterSchema == null ? ToolParameterSchema.empty() : parameterSchema;
         outputSchema = outputSchema == null ? ToolOutputSchema.empty() : outputSchema;
         permissionPolicy = permissionPolicy == null ? ToolPermissionPolicy.allowAll() : permissionPolicy;
-        auditPolicy = auditPolicy == null ? ToolAuditPolicy.standard() : auditPolicy;
+        activityPolicy = activityPolicy == null ? ToolActivityPolicy.standard() : activityPolicy;
         workloadType = workloadType == null ? AgentWorkloadType.OFFICE : workloadType;
         createdAt = createdAt == null ? Instant.now() : createdAt;
         updatedAt = updatedAt == null ? createdAt : updatedAt;
@@ -45,7 +45,7 @@ public record ToolDefinition(
 
     public ToolDefinition(
             String id,
-            String tenantId,
+            String ownerScopeId,
             String name,
             String description,
             String ownerSystem,
@@ -57,12 +57,12 @@ public record ToolDefinition(
             boolean enabled,
             ToolParameterSchema parameterSchema,
             ToolPermissionPolicy permissionPolicy,
-            ToolAuditPolicy auditPolicy,
+            ToolActivityPolicy activityPolicy,
             Instant createdAt,
             Instant updatedAt) {
         this(
                 id,
-                tenantId,
+                ownerScopeId,
                 name,
                 description,
                 ownerSystem,
@@ -75,7 +75,7 @@ public record ToolDefinition(
                 parameterSchema,
                 ToolOutputSchema.empty(),
                 permissionPolicy,
-                auditPolicy,
+                activityPolicy,
                 AgentWorkloadType.OFFICE,
                 createdAt,
                 updatedAt);
@@ -83,7 +83,7 @@ public record ToolDefinition(
 
     public ToolDefinition(
             String id,
-            String tenantId,
+            String ownerScopeId,
             String name,
             String description,
             String ownerSystem,
@@ -95,13 +95,13 @@ public record ToolDefinition(
             boolean enabled,
             ToolParameterSchema parameterSchema,
             ToolPermissionPolicy permissionPolicy,
-            ToolAuditPolicy auditPolicy,
+            ToolActivityPolicy activityPolicy,
             AgentWorkloadType workloadType,
             Instant createdAt,
             Instant updatedAt) {
         this(
                 id,
-                tenantId,
+                ownerScopeId,
                 name,
                 description,
                 ownerSystem,
@@ -114,7 +114,7 @@ public record ToolDefinition(
                 parameterSchema,
                 ToolOutputSchema.empty(),
                 permissionPolicy,
-                auditPolicy,
+                activityPolicy,
                 workloadType,
                 createdAt,
                 updatedAt);
@@ -122,7 +122,7 @@ public record ToolDefinition(
 
     public ToolDefinition(
             String id,
-            String tenantId,
+            String ownerScopeId,
             String name,
             String description,
             String ownerSystem,
@@ -134,13 +134,13 @@ public record ToolDefinition(
             boolean enabled,
             ToolParameterSchema parameterSchema,
             ToolPermissionPolicy permissionPolicy,
-            ToolAuditPolicy auditPolicy,
+            ToolActivityPolicy activityPolicy,
             ToolOutputSchema outputSchema,
             Instant createdAt,
             Instant updatedAt) {
         this(
                 id,
-                tenantId,
+                ownerScopeId,
                 name,
                 description,
                 ownerSystem,
@@ -153,7 +153,7 @@ public record ToolDefinition(
                 parameterSchema,
                 outputSchema,
                 permissionPolicy,
-                auditPolicy,
+                activityPolicy,
                 AgentWorkloadType.OFFICE,
                 createdAt,
                 updatedAt);
@@ -162,7 +162,7 @@ public record ToolDefinition(
     public ToolDefinition withEnabled(boolean nextEnabled) {
         return new ToolDefinition(
                 id,
-                tenantId,
+                ownerScopeId,
                 name,
                 description,
                 ownerSystem,
@@ -175,7 +175,7 @@ public record ToolDefinition(
                 parameterSchema,
                 outputSchema,
                 permissionPolicy,
-                auditPolicy,
+                activityPolicy,
                 workloadType,
                 createdAt,
                 Instant.now());

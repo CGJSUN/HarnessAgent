@@ -30,13 +30,13 @@ import com.harnessagent.rag.application.TextChunker;
 import com.harnessagent.rag.application.TextTokenizer;
 import com.harnessagent.rag.domain.KnowledgeSourceRegistration;
 import com.harnessagent.rag.domain.KnowledgeVisibility;
-import com.harnessagent.rag.domain.RetrievalPrincipal;
+import com.harnessagent.rag.domain.OwnerRetrievalPrincipal;
 import com.harnessagent.rag.persistence.InMemoryKnowledgeStore;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.session.persistence.InMemorySessionStore;
 import com.harnessagent.tooling.application.ToolService;
-import com.harnessagent.tooling.domain.ToolAuditPolicy;
+import com.harnessagent.tooling.domain.ToolActivityPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolParameterSchema;
 import com.harnessagent.tooling.domain.ToolPermissionPolicy;
@@ -75,7 +75,7 @@ class SafeOperationalLoggingTest {
 
         try (CapturedLogs logs = CapturedLogs.attach(ChatService.class)) {
             assertThatThrownBy(() -> service.chat(new ChatCommand(
-                            "tenant-a",
+                            "owner-scope-a",
                             "sensitive.user@example.com",
                             "agent-a",
                             "session-sensitive-123",
@@ -87,9 +87,8 @@ class SafeOperationalLoggingTest {
             assertThat(logs.levels()).contains(Level.WARN);
             assertThat(logs.messages())
                     .contains("chat prompt safety rejected")
-                    .contains("tenantId=tenant-a")
+                    .contains("ownerHash=sha256:")
                     .contains("agentId=agent-a")
-                    .contains("userHash=sha256:")
                     .contains("sessionHash=sha256:")
                     .contains("reason=potential_prompt_injection_or_unsafe_instruction_detected")
                     .doesNotContain("ignore previous")
@@ -104,22 +103,24 @@ class SafeOperationalLoggingTest {
         KnowledgeService service = knowledgeService();
         service.ingestDocument(new KnowledgeDocumentInput(
                 new KnowledgeSourceRegistration(
-                        "tenant-a",
+                        "owner-scope-a",
                         "owner-a",
+                        "",
                         "salary-secret-source",
                         "v1",
                         KnowledgeVisibility.RESTRICTED,
-                        Set.of("finance"),
                         Set.of(),
-                        Set.of(),
-                        "manual"),
+                        "manual",
+                        com.harnessagent.rag.domain.KnowledgeSourceType.INLINE_TEXT,
+                        ""),
                 "payroll secret evidence should never be logged"));
 
         try (CapturedLogs logs = CapturedLogs.attach(KnowledgeService.class)) {
             service.retrieve(
-                    new RetrievalPrincipal(
-                            "tenant-a",
+                    new OwnerRetrievalPrincipal(
+                            "owner-scope-a",
                             "sensitive.user@example.com",
+                            "",
                             Set.of("engineering"),
                             Set.of()),
                     "payroll secret query",
@@ -128,8 +129,7 @@ class SafeOperationalLoggingTest {
             assertThat(logs.levels()).contains(Level.WARN);
             assertThat(logs.messages())
                     .contains("rag no_answer")
-                    .contains("tenantId=tenant-a")
-                    .contains("userHash=sha256:")
+                    .contains("ownerHash=sha256:")
                     .contains("candidateCount=1")
                     .contains("permittedCount=0")
                     .doesNotContain("payroll secret query")
@@ -143,7 +143,7 @@ class SafeOperationalLoggingTest {
     void toolGovernanceLogKeepsParametersAndIdempotencyKeyOutOfMessage() {
         ToolService service = new ToolService(new InMemoryToolStore(), List.of(noopToolExecutor()));
         ToolDefinition tool = service.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "ticket.update",
                 "Update ticket state.",
                 "ServiceDesk",
@@ -159,16 +159,14 @@ class SafeOperationalLoggingTest {
                         Map.of("status", Set.of("approved", "rejected")),
                         Set.of()),
                 new ToolPermissionPolicy(
-                        Set.of("tenant-a"),
                         Set.of("sensitive.user@example.com"),
                         Set.of("agent-a"),
-                        Set.of(),
                         Set.of()),
-                ToolAuditPolicy.standard()));
+                ToolActivityPolicy.standard()));
 
         try (CapturedLogs logs = CapturedLogs.attach(ToolService.class)) {
             ToolExecutionResult result = service.execute(new ToolExecutionCommand(
-                    "tenant-a",
+                    "owner-scope-a",
                     "sensitive.user@example.com",
                     "agent-a",
                     "session-sensitive-123",
@@ -185,10 +183,9 @@ class SafeOperationalLoggingTest {
             assertThat(logs.levels()).contains(Level.INFO);
             assertThat(logs.messages())
                     .contains("tool high_risk pending")
-                    .contains("tenantId=tenant-a")
+                    .contains("ownerHash=sha256:")
                     .contains("agentId=agent-a")
                     .contains("toolId=" + tool.id())
-                    .contains("userHash=sha256:")
                     .contains("sessionHash=sha256:")
                     .contains("idempotencyHash=sha256:")
                     .doesNotContain("ticket-secret-123")
@@ -216,7 +213,7 @@ class SafeOperationalLoggingTest {
         try (CapturedLogs logs = CapturedLogs.attach(WorkspaceSnapshotService.class)) {
             service.save(
                     new RuntimeContextScope(
-                            "tenant-a",
+                            "owner-scope-a",
                             "user-a",
                             "agent-a",
                             "session-sensitive-123",
@@ -229,7 +226,7 @@ class SafeOperationalLoggingTest {
             assertThat(logs.levels()).contains(Level.INFO);
             assertThat(logs.messages())
                     .contains("workspace snapshot saved")
-                    .contains("tenantId=tenant-a")
+                    .contains("ownerHash=sha256:")
                     .contains("agentId=agent-a")
                     .contains("sessionHash=sha256:")
                     .contains("backendType=JDBC")

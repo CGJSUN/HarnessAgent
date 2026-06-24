@@ -3,7 +3,7 @@ package com.harnessagent.tooling.domain;
 import com.harnessagent.production.config.AgentWorkloadType;
 
 public record ToolRegistration(
-        String tenantId,
+        String ownerScopeId,
         String name,
         String description,
         String ownerSystem,
@@ -16,7 +16,7 @@ public record ToolRegistration(
         ToolParameterSchema parameterSchema,
         ToolOutputSchema outputSchema,
         ToolPermissionPolicy permissionPolicy,
-        ToolAuditPolicy auditPolicy,
+        ToolActivityPolicy activityPolicy,
         AgentWorkloadType workloadType) {
 
     public ToolRegistration {
@@ -24,7 +24,7 @@ public record ToolRegistration(
     }
 
     public ToolRegistration(
-            String tenantId,
+            String ownerScopeId,
             String name,
             String description,
             String ownerSystem,
@@ -36,9 +36,9 @@ public record ToolRegistration(
             boolean enabled,
             ToolParameterSchema parameterSchema,
             ToolPermissionPolicy permissionPolicy,
-            ToolAuditPolicy auditPolicy) {
+            ToolActivityPolicy activityPolicy) {
         this(
-                tenantId,
+                ownerScopeId,
                 name,
                 description,
                 ownerSystem,
@@ -51,12 +51,12 @@ public record ToolRegistration(
                 parameterSchema,
                 ToolOutputSchema.empty(),
                 permissionPolicy,
-                auditPolicy,
+                activityPolicy,
                 AgentWorkloadType.OFFICE);
     }
 
     public ToolRegistration(
-            String tenantId,
+            String ownerScopeId,
             String name,
             String description,
             String ownerSystem,
@@ -68,10 +68,10 @@ public record ToolRegistration(
             boolean enabled,
             ToolParameterSchema parameterSchema,
             ToolPermissionPolicy permissionPolicy,
-            ToolAuditPolicy auditPolicy,
+            ToolActivityPolicy activityPolicy,
             AgentWorkloadType workloadType) {
         this(
-                tenantId,
+                ownerScopeId,
                 name,
                 description,
                 ownerSystem,
@@ -84,12 +84,12 @@ public record ToolRegistration(
                 parameterSchema,
                 ToolOutputSchema.empty(),
                 permissionPolicy,
-                auditPolicy,
+                activityPolicy,
                 workloadType);
     }
 
     public ToolRegistration(
-            String tenantId,
+            String ownerScopeId,
             String name,
             String description,
             String ownerSystem,
@@ -102,9 +102,9 @@ public record ToolRegistration(
             ToolParameterSchema parameterSchema,
             ToolOutputSchema outputSchema,
             ToolPermissionPolicy permissionPolicy,
-            ToolAuditPolicy auditPolicy) {
+            ToolActivityPolicy activityPolicy) {
         this(
-                tenantId,
+                ownerScopeId,
                 name,
                 description,
                 ownerSystem,
@@ -117,7 +117,7 @@ public record ToolRegistration(
                 parameterSchema,
                 outputSchema,
                 permissionPolicy,
-                auditPolicy,
+                activityPolicy,
                 AgentWorkloadType.OFFICE);
     }
 }

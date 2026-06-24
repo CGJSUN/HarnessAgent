@@ -113,7 +113,7 @@ public class AgentSessionRecoveryService {
         private NoopAgentSessionRecoveryService(SessionStore sessionStore) {
             super(sessionStore, new ProductionRuntimeValidator(new com.harnessagent.production.config.ProductionRuntimeProperties()),
                     plan -> new com.harnessagent.production.infrastructure.InMemoryAgentStateStore(
-                            new com.harnessagent.production.state.TenantStateKeyStrategy(),
+                            new com.harnessagent.production.state.OwnerStateKeyStrategy(),
                             plan));
             this.sessionStore = sessionStore;
         }

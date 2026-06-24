@@ -4,7 +4,7 @@ public enum Permission {
     READ,
     WRITE,
     EXECUTE,
-    ADMIN,
+    MANAGE,
     APPROVE,
-    SEARCH_AUDIT
+    SEARCH_ACTIVITY
 }

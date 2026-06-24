@@ -4,13 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.harnessagent.security.application.AuthorizationService;
-import com.harnessagent.security.application.SecurityAuditService;
+import com.harnessagent.security.application.SecurityActivityService;
 import com.harnessagent.security.application.SensitiveDataRedactor;
 import com.harnessagent.security.domain.IdentityProviderType;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.security.domain.ResourceType;
-import com.harnessagent.security.domain.SecurityPrincipal;
-import com.harnessagent.security.persistence.InMemorySecurityAuditStore;
-import com.harnessagent.security.persistence.SecurityAuditRecord;
+import com.harnessagent.security.persistence.InMemorySecurityActivityStore;
+import com.harnessagent.security.persistence.SecurityActivityRecord;
 import com.harnessagent.skill.domain.PersonalSkillMetadata;
 import com.harnessagent.skill.domain.PersonalSkillStatus;
 import com.harnessagent.skill.domain.SkillExecutionRequest;
@@ -33,11 +33,11 @@ class PersonalSkillServiceTest {
     @TempDir
     private Path tempDir;
 
-    private final InMemorySecurityAuditStore auditStore = new InMemorySecurityAuditStore();
+    private final InMemorySecurityActivityStore activityStore = new InMemorySecurityActivityStore();
     private final PersonalSkillService service = new PersonalSkillService(
             new LocalSkillRepositoryAdapter(),
             new AuthorizationService(),
-            new SecurityAuditService(new SensitiveDataRedactor(), new AuthorizationService(), auditStore));
+            new SecurityActivityService(new SensitiveDataRedactor(), new AuthorizationService(), activityStore));
 
     @Test
     void scansLocalSkillRepositoryAndKeepsAdapterPlaceholders() throws Exception {
@@ -132,12 +132,12 @@ class PersonalSkillServiceTest {
     }
 
     @Test
-    void isolatesInstalledSkillsByOwnerWithinSameTenant() throws Exception {
+    void isolatesInstalledSkillsByOwnerWithinSameScope() throws Exception {
         Path skillDir = writeSkill("writer", "1.0.0", writerManifest("1.0.0"));
         write(skillDir.resolve("SKILL.md"), "Write owner-scoped drafts.");
         write(skillDir.resolve("examples/basic.md"), "Input: topic. Output: owner draft.");
-        SecurityPrincipal ownerA = principal("personal", "owner-a");
-        SecurityPrincipal ownerB = principal("personal", "owner-b");
+        OwnerPrincipal ownerA = ownerPrincipal("personal", "owner-a");
+        OwnerPrincipal ownerB = ownerPrincipal("personal", "owner-b");
         service.refreshLocalRepository(ownerA, tempDir);
         service.refreshLocalRepository(ownerB, tempDir);
 
@@ -239,11 +239,11 @@ class PersonalSkillServiceTest {
         assertThatThrownBy(() -> service.upgrade(owner(), "writer", "1.1.0"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("locked");
-        List<SecurityAuditRecord> auditRecords = auditStore.search(owner().tenantId(), Instant.EPOCH);
-        assertThat(auditRecords)
-                .extracting(SecurityAuditRecord::action)
+        List<SecurityActivityRecord> activityRecords = activityStore.search(owner().ownerScopeId(), Instant.EPOCH);
+        assertThat(activityRecords)
+                .extracting(SecurityActivityRecord::action)
                 .contains("SKILL_DISABLED", "SKILL_UPGRADED", "SKILL_ROLLED_BACK", "SKILL_VERSION_LOCKED");
-        assertThat(auditRecords)
+        assertThat(activityRecords)
                 .anySatisfy(record -> {
                     assertThat(record.resourceType()).isEqualTo(ResourceType.SKILL);
                     assertThat(record.sanitizedDetails())
@@ -380,13 +380,13 @@ class PersonalSkillServiceTest {
         Files.writeString(path, content, StandardCharsets.UTF_8);
     }
 
-    private static SecurityPrincipal owner() {
-        return principal("personal:owner-a", "owner-a");
+    private static OwnerPrincipal owner() {
+        return ownerPrincipal("personal:owner-a", "owner-a");
     }
 
-    private static SecurityPrincipal principal(String tenantId, String ownerId) {
-        return new SecurityPrincipal(
-                tenantId,
+    private static OwnerPrincipal ownerPrincipal(String ownerScopeId, String ownerId) {
+        return new OwnerPrincipal(
+                ownerScopeId,
                 ownerId,
                 IdentityProviderType.INTERNAL,
                 Set.of("owner"),

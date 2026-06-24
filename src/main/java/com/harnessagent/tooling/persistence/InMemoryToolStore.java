@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import com.harnessagent.tooling.audit.ToolAuditRecord;
+import com.harnessagent.tooling.activity.ToolActivityRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolPendingConfirmation;
 import com.harnessagent.tooling.domain.ToolPendingConfirmationStatus;
@@ -20,7 +20,7 @@ import com.harnessagent.tooling.execution.ToolExecutionResult;
 public class InMemoryToolStore implements ToolStore {
 
     private final Map<String, ToolDefinition> tools = new ConcurrentHashMap<>();
-    private final List<ToolAuditRecord> auditRecords = new CopyOnWriteArrayList<>();
+    private final List<ToolActivityRecord> auditRecords = new CopyOnWriteArrayList<>();
     private final Map<String, ToolIdempotencyRecord> idempotentResults = new ConcurrentHashMap<>();
     private final Map<String, ToolPendingConfirmation> pendingConfirmations = new ConcurrentHashMap<>();
 
@@ -39,29 +39,29 @@ public class InMemoryToolStore implements ToolStore {
     }
 
     @Override
-    public List<ToolDefinition> listTools(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("tenantId is required");
+    public List<ToolDefinition> listTools(String ownerScopeId) {
+        if (ownerScopeId == null || ownerScopeId.isBlank()) {
+            throw new IllegalArgumentException("owner scope is required");
         }
         return tools.values().stream()
-                .filter(tool -> tool.tenantId().equals(tenantId.trim()))
+                .filter(tool -> tool.ownerScopeId().equals(ownerScopeId.trim()))
                 .sorted(Comparator.comparing(ToolDefinition::name))
                 .toList();
     }
 
     @Override
-    public void saveAudit(ToolAuditRecord record) {
+    public void saveActivity(ToolActivityRecord record) {
         auditRecords.add(record);
     }
 
     @Override
-    public List<ToolAuditRecord> listAudit(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("tenantId is required");
+    public List<ToolActivityRecord> listActivity(String ownerScopeId) {
+        if (ownerScopeId == null || ownerScopeId.isBlank()) {
+            throw new IllegalArgumentException("owner scope is required");
         }
         return auditRecords.stream()
-                .filter(record -> record.tenantId().equals(tenantId.trim()))
-                .sorted(Comparator.comparing(ToolAuditRecord::occurredAt))
+                .filter(record -> record.ownerScopeId().equals(ownerScopeId.trim()))
+                .sorted(Comparator.comparing(ToolActivityRecord::occurredAt))
                 .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
     }
 
@@ -113,14 +113,14 @@ public class InMemoryToolStore implements ToolStore {
 
     @Override
     public List<ToolPendingConfirmation> listPendingConfirmations(
-            String tenantId,
-            String userId,
+            String ownerScopeId,
+            String ownerId,
             String agentId,
             String sessionId) {
         return pendingConfirmations.values().stream()
                 .filter(confirmation -> confirmation.status() == ToolPendingConfirmationStatus.PENDING)
-                .filter(confirmation -> confirmation.tenantId().equals(tenantId))
-                .filter(confirmation -> confirmation.userId().equals(userId))
+                .filter(confirmation -> confirmation.ownerScopeId().equals(ownerScopeId))
+                .filter(confirmation -> confirmation.ownerId().equals(ownerId))
                 .filter(confirmation -> confirmation.agentId().equals(agentId))
                 .filter(confirmation -> confirmation.sessionId().equals(sessionId))
                 .sorted(Comparator.comparing(ToolPendingConfirmation::createdAt))

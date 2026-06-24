@@ -3,7 +3,7 @@ package com.harnessagent.rag.application;
 import com.harnessagent.rag.domain.MemoryLayer;
 
 public record MemoryWriteCommand(
-        String tenantId,
+        String ownerScopeId,
         String ownerId,
         String agentId,
         String sessionId,

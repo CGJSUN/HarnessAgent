@@ -22,7 +22,7 @@ class JdbcSnapshotStoreTest {
         JdbcSnapshotStore reader = store(dataSource);
         SnapshotMetadata metadata = new SnapshotMetadata(
                 "snapshot-a",
-                "tenant-a",
+                "owner-scope-a",
                 "agent-a",
                 "session-a",
                 "task-a",
@@ -34,8 +34,8 @@ class JdbcSnapshotStoreTest {
 
         assertThat(saved.backendType()).isEqualTo(SnapshotStoreType.JDBC);
         assertThat(saved.location()).isEqualTo("jdbc://snapshot/snapshot-a");
-        assertThat(reader.list("tenant-a", "agent-a", "session-a")).containsExactly(saved);
-        assertThat(reader.list("tenant-b", "agent-a", "session-a")).isEmpty();
+        assertThat(reader.list("owner-scope-a", "agent-a", "session-a")).containsExactly(saved);
+        assertThat(reader.list("owner-scope-b", "agent-a", "session-a")).isEmpty();
         assertThat(reader.load("snapshot-a"))
                 .get()
                 .satisfies(snapshot -> {

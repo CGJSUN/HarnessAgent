@@ -39,6 +39,10 @@ public final class SafeLogFields {
         return digest(userId);
     }
 
+    public static String owner(String ownerId) {
+        return digest(ownerId);
+    }
+
     public static String session(String sessionId) {
         return digest(sessionId);
     }

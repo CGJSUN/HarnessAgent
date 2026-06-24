@@ -6,7 +6,7 @@ import java.util.stream.Collectors;
 
 public record PersonalSkillMetadata(
         String id,
-        String tenantId,
+        String ownerScopeId,
         String ownerId,
         String name,
         String description,
@@ -21,11 +21,11 @@ public record PersonalSkillMetadata(
         Instant updatedAt) {
 
     public PersonalSkillMetadata {
-        tenantId = require(tenantId, "tenantId");
+        ownerScopeId = require(ownerScopeId, "ownerScopeId");
         ownerId = require(ownerId, "ownerId");
         name = require(name, "name");
         version = require(version, "version");
-        id = id == null || id.isBlank() ? tenantId + ":" + name + ":" + version : id.trim();
+        id = id == null || id.isBlank() ? ownerScopeId + ":" + name + ":" + version : id.trim();
         description = description == null ? "" : description.trim();
         triggers = safeSet(triggers);
         sourceType = sourceType == null ? SkillRepositoryType.LOCAL : sourceType;
@@ -40,7 +40,7 @@ public record PersonalSkillMetadata(
     public PersonalSkillMetadata withStatus(PersonalSkillStatus nextStatus) {
         return new PersonalSkillMetadata(
                 id,
-                tenantId,
+                ownerScopeId,
                 ownerId,
                 name,
                 description,

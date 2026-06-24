@@ -41,9 +41,9 @@ public class BudgetLimiter {
 
     private static List<String> keys(BudgetScope scope) {
         return List.of(
-                "tenant:" + scope.tenantId(),
-                "user:" + scope.tenantId() + ":" + scope.userId(),
-                "agent:" + scope.tenantId() + ":" + scope.agentId(),
+                "owner-scope:" + scope.ownerScopeId(),
+                "owner:" + scope.ownerScopeId() + ":" + scope.ownerId(),
+                "agent:" + scope.ownerScopeId() + ":" + scope.agentId(),
                 "provider:" + scope.providerId(),
                 "scope:" + scope.key());
     }

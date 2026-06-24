@@ -19,12 +19,12 @@ class RedisBudgetCounterStoreTest {
         @SuppressWarnings("unchecked")
         HashOperations<String, Object, Object> hashes = mock(HashOperations.class);
         when(redis.opsForHash()).thenReturn(hashes);
-        when(hashes.increment("harness-agent:budget:tenant:tenant-a", "requests", 1)).thenReturn(2L);
-        when(hashes.increment("harness-agent:budget:tenant:tenant-a", "tokens", 7)).thenReturn(19L);
+        when(hashes.increment("harness-agent:budget:owner-scope:owner-scope-a", "requests", 1)).thenReturn(2L);
+        when(hashes.increment("harness-agent:budget:owner-scope:owner-scope-a", "tokens", 7)).thenReturn(19L);
 
-        BudgetCounter counter = new RedisBudgetCounterStore(redis).increment("tenant:tenant-a", 7);
+        BudgetCounter counter = new RedisBudgetCounterStore(redis).increment("owner-scope:owner-scope-a", 7);
 
-        assertThat(counter).isEqualTo(new BudgetCounter("tenant:tenant-a", 2, 19));
+        assertThat(counter).isEqualTo(new BudgetCounter("owner-scope:owner-scope-a", 2, 19));
     }
 
     @Test
@@ -33,10 +33,10 @@ class RedisBudgetCounterStoreTest {
         @SuppressWarnings("unchecked")
         HashOperations<String, Object, Object> hashes = mock(HashOperations.class);
         when(redis.opsForHash()).thenReturn(hashes);
-        when(hashes.increment("harness-agent:budget:tenant:tenant-a", "requests", 1))
+        when(hashes.increment("harness-agent:budget:owner-scope:owner-scope-a", "requests", 1))
                 .thenThrow(new IllegalStateException("timeout"));
 
-        assertThatThrownBy(() -> new RedisBudgetCounterStore(redis).increment("tenant:tenant-a", 7))
+        assertThatThrownBy(() -> new RedisBudgetCounterStore(redis).increment("owner-scope:owner-scope-a", 7))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Redis budget counter increment failed")
                 .hasMessageContaining("timeout");

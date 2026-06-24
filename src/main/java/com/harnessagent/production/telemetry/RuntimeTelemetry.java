@@ -10,14 +10,14 @@ public interface RuntimeTelemetry {
 
     TelemetryEvent record(
             TelemetryEventType type,
-            String tenantId,
-            String userId,
+            String ownerScopeId,
+            String ownerId,
             String agentId,
             String component,
             Duration duration,
             Map<String, Object> attributes);
 
-    List<TelemetryEvent> list(String tenantId);
+    List<TelemetryEvent> list(String ownerScopeId);
 
     static RuntimeTelemetry noop() {
         return new InMemoryRuntimeTelemetry(false);

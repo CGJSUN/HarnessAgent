@@ -10,7 +10,7 @@ import com.harnessagent.agent.runtime.AgentRuntimeEvent;
 import com.harnessagent.production.telemetry.RuntimeTelemetry;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.security.domain.IdentityProviderType;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.security.application.SensitiveDataRedactor;
 import com.harnessagent.tooling.persistence.InMemoryToolStore;
 import com.harnessagent.tooling.application.ToolService;
@@ -66,7 +66,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "writer-agent",
                 "撰写个人文档",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of("workspace.write"),
                 Set.of("writing-skill"),
                 Set.of("knowledge-a"),
@@ -83,7 +83,7 @@ class OrchestrationServiceTest {
         service.register(agent(
                 "research-light",
                 "研究资料",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of("search"),
                 Set.of(),
                 Set.of(),
@@ -92,7 +92,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "knowledge-agent",
                 "研究资料并总结引用来源",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of("search"),
                 Set.of("research-skill"),
                 Set.of("knowledge-a"),
@@ -100,7 +100,7 @@ class OrchestrationServiceTest {
                 true));
 
         OrchestrationResult result = service.orchestrate(new OrchestrationRequest(
-                principal(Set.of("employee")),
+                principal(Set.of("user-a")),
                 "supervisor",
                 "研究资料",
                 "总结资料",
@@ -124,7 +124,7 @@ class OrchestrationServiceTest {
         service.register(agent(
                 "broad-summary-agent",
                 "整理报告",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of("workspace.write", "shell.command"),
                 Set.of("report-skill"),
                 Set.of("knowledge-a"),
@@ -133,7 +133,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition narrow = service.register(agent(
                 "narrow-summary-agent",
                 "整理报告",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of(),
                 Set.of(),
                 Set.of(),
@@ -141,7 +141,7 @@ class OrchestrationServiceTest {
                 true));
 
         OrchestrationResult result = service.orchestrate(new OrchestrationRequest(
-                principal(Set.of("employee")),
+                principal(Set.of("user-a")),
                 "supervisor",
                 "整理报告",
                 "整理报告",
@@ -157,14 +157,14 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "approval-agent",
                 "处理审批申请",
-                Set.of("employee"),
+                Set.of("user-a"),
                 true));
 
         AgentToolDefinition tool = service.asTool(agent.id());
 
         assertThat(tool.toolName()).isEqualTo("agent.approval-agent");
-        assertThat(tool.requiredRoles()).contains("employee");
-        assertThat(toolService.listTools("tenant-a")).hasSize(1);
+        assertThat(tool.allowedOwnerIds()).contains("user-a");
+        assertThat(toolService.listTools("owner-scope-a")).hasSize(1);
     }
 
     @Test
@@ -172,24 +172,24 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "review-agent",
                 "代码审查",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of("repo.read"),
                 Set.of("code-review-skill"),
                 Set.of(),
                 new ContextBoundary(false, false, false, false, Set.of("task", "question")),
                 true));
         service.asTool(agent.id());
-        ToolDefinition tool = toolService.listTools("tenant-a").get(0);
+        ToolDefinition tool = toolService.listTools("owner-scope-a").get(0);
 
         ToolExecutionResult result = toolService.execute(new ToolExecutionCommand(
-                "tenant-a",
+                "owner-scope-a",
                 "user-a",
                 "supervisor",
                 "session-a",
                 tool.id(),
                 Map.of("task", "review patch", "context", Map.of("question", "check risk")),
                 Set.of(),
-                Set.of("employee"),
+                Set.of("user-a"),
                 false,
                 null,
                 null,
@@ -199,10 +199,10 @@ class OrchestrationServiceTest {
         assertThat(result.output()).containsEntry("childAgentId", agent.id());
         assertThat(result.output()).containsEntry("result", "child-answer");
         assertThat(result.output()).containsKey("traceId");
-        assertThat(service.listTraces(principal(Set.of("admin"))))
+        assertThat(service.listTraces(principal(Set.of("user-a"))))
                 .extracting(trace -> trace.id())
                 .contains(String.valueOf(result.output().get("traceId")));
-        assertThat(toolService.listAudit("tenant-a"))
+        assertThat(toolService.listActivity("owner-scope-a"))
                 .singleElement()
                 .satisfies(record -> assertThat(record.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED));
     }
@@ -212,7 +212,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "workspace-agent",
                 "修改工作区文件",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of("workspace.write"),
                 Set.of(),
                 Set.of(),
@@ -230,7 +230,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "failing-review-agent",
                 "代码审查",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of("repo.read"),
                 Set.of(),
                 Set.of(),
@@ -238,24 +238,24 @@ class OrchestrationServiceTest {
                 true));
         agentRuntime.failOnceFor(agent.id());
         service.asTool(agent.id());
-        ToolDefinition tool = toolService.listTools("tenant-a").get(0);
+        ToolDefinition tool = toolService.listTools("owner-scope-a").get(0);
 
         ToolExecutionResult result = toolService.execute(new ToolExecutionCommand(
-                "tenant-a",
+                "owner-scope-a",
                 "user-a",
                 "supervisor",
                 "session-a",
                 tool.id(),
                 Map.of("task", "review patch"),
                 Set.of(),
-                Set.of("employee"),
+                Set.of("user-a"),
                 false,
                 null,
                 null,
                 null));
 
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.FAILED);
-        assertThat(service.listTraces(principal(Set.of("admin"))))
+        assertThat(service.listTraces(principal(Set.of("user-a"))))
                 .anySatisfy(trace -> {
                     assertThat(trace.selectedAgentId()).isEqualTo(agent.id());
                     assertThat(trace.status()).isEqualTo(OrchestrationStatus.BLOCKED);
@@ -273,7 +273,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "research-agent",
                 "后台研究",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of("search"),
                 Set.of("research-skill"),
                 Set.of("knowledge-a"),
@@ -283,7 +283,7 @@ class OrchestrationServiceTest {
 
         CompletableFuture<OrchestrationResult> future = CompletableFuture.supplyAsync(() -> backgroundService.orchestrate(
                 new OrchestrationRequest(
-                principal(Set.of("employee")),
+                principal(Set.of("user-a")),
                 "supervisor",
                 "后台研究",
                 "后台收集资料",
@@ -295,7 +295,7 @@ class OrchestrationServiceTest {
         try {
             assertThat(future.isDone()).isTrue();
         } finally {
-            blockingRuntime.release();
+            blockingRuntime.readiness();
         }
         OrchestrationResult result = future.get(2, TimeUnit.SECONDS);
 
@@ -313,7 +313,7 @@ class OrchestrationServiceTest {
         service.register(agent(
                 "privacy-agent",
                 "处理隐私问题",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of(),
                 Set.of(),
                 Set.of(),
@@ -321,7 +321,7 @@ class OrchestrationServiceTest {
                 true));
 
         OrchestrationResult result = service.orchestrate(new OrchestrationRequest(
-                principal(Set.of("employee")),
+                principal(Set.of("user-a")),
                 "supervisor",
                 "隐私",
                 "回答问题",
@@ -344,7 +344,7 @@ class OrchestrationServiceTest {
         service.register(agent(
                 "privacy-agent",
                 "处理隐私问题",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of(),
                 Set.of(),
                 Set.of(),
@@ -352,7 +352,7 @@ class OrchestrationServiceTest {
                 true));
 
         OrchestrationResult result = service.orchestrate(new OrchestrationRequest(
-                principal(Set.of("employee")),
+                principal(Set.of("user-a")),
                 "supervisor",
                 "隐私",
                 "回答问题",
@@ -375,7 +375,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "unstable-agent",
                 "失败后回退",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of(),
                 Set.of(),
                 Set.of(),
@@ -385,7 +385,7 @@ class OrchestrationServiceTest {
         agentRuntime.reply("supervisor", "supervisor fallback");
 
         OrchestrationResult result = service.orchestrate(new OrchestrationRequest(
-                principal(Set.of("employee")),
+                principal(Set.of("user-a")),
                 "supervisor",
                 "失败后回退",
                 "执行可能失败的任务",
@@ -408,7 +408,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "unstable-agent",
                 "失败后回退",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of(),
                 Set.of(),
                 Set.of(),
@@ -418,7 +418,7 @@ class OrchestrationServiceTest {
         agentRuntime.failAlwaysFor("supervisor");
 
         OrchestrationResult result = service.orchestrate(new OrchestrationRequest(
-                principal(Set.of("employee")),
+                principal(Set.of("user-a")),
                 "supervisor",
                 "失败后回退",
                 "执行可能失败的任务",
@@ -438,7 +438,7 @@ class OrchestrationServiceTest {
         ExpertAgentDefinition agent = service.register(agent(
                 "draft-agent",
                 "草稿 Agent",
-                Set.of("employee"),
+                Set.of("user-a"),
                 Set.of(),
                 Set.of(),
                 Set.of(),
@@ -454,7 +454,7 @@ class OrchestrationServiceTest {
         service.register(agent("finance-agent", "财务专用", Set.of("finance"), true));
 
         OrchestrationResult result = service.orchestrate(new OrchestrationRequest(
-                principal(Set.of("employee")),
+                principal(Set.of("user-a")),
                 "supervisor",
                 "财务",
                 "处理薪资",
@@ -468,20 +468,32 @@ class OrchestrationServiceTest {
     }
 
     @Test
-    void traceSearchRequiresElevatedRole() {
-        assertThatThrownBy(() -> service.listTraces(principal(Set.of("employee"))))
-                .isInstanceOf(IllegalStateException.class);
+    void traceSearchReturnsPersonalOwnerScopeTraces() {
+        service.register(agent("research-agent", "研究资料", Set.of("user-a"), true));
+
+        OrchestrationResult result = service.orchestrate(new OrchestrationRequest(
+                principal(Set.of("user-a")),
+                "supervisor",
+                "研究资料",
+                "总结资料",
+                Map.of("question", "资料"),
+                DelegationMode.SYNC,
+                FailureStrategy.STOP));
+
+        assertThat(service.listTraces(principal(Set.of("user-a"))))
+                .extracting(trace -> trace.id())
+                .contains(result.trace().id());
     }
 
     private static ExpertAgentDefinition agent(
             String name,
             String purpose,
-            Set<String> roles,
+            Set<String> owners,
             boolean approved) {
         return agent(
                 name,
                 purpose,
-                roles,
+                owners,
                 Set.of("tool-a"),
                 Set.of(),
                 Set.of("knowledge-a"),
@@ -492,7 +504,7 @@ class OrchestrationServiceTest {
     private static ExpertAgentDefinition agent(
             String name,
             String purpose,
-            Set<String> roles,
+            Set<String> owners,
             Set<String> tools,
             Set<String> skills,
             Set<String> knowledgeSources,
@@ -500,25 +512,25 @@ class OrchestrationServiceTest {
             boolean approved) {
         return new ExpertAgentDefinition(
                 null,
-                "tenant-a",
+                "owner-scope-a",
                 name,
                 purpose,
                 "text",
                 "text",
-                roles,
+                owners,
                 tools,
                 skills,
                 knowledgeSources,
                 boundary,
-                "owner-a",
+                "user-a",
                 approved,
                 true,
                 "v1",
                 null);
     }
 
-    private static SecurityPrincipal principal(Set<String> roles) {
-        return new SecurityPrincipal("tenant-a", "user-a", IdentityProviderType.INTERNAL, roles, Set.of());
+    private static OwnerPrincipal principal(Set<String> owners) {
+        return new OwnerPrincipal("owner-scope-a", "user-a", IdentityProviderType.INTERNAL, owners, Set.of());
     }
 
     private static OrchestrationService serviceWith(
@@ -544,7 +556,7 @@ class OrchestrationServiceTest {
             String agentId) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
         while (System.nanoTime() < deadline) {
-            boolean found = service.listTraces(principal(Set.of("admin"))).stream()
+            boolean found = service.listTraces(principal(Set.of("user-a"))).stream()
                     .anyMatch(trace -> trace.selectedAgentId().equals(agentId)
                             && trace.status() == OrchestrationStatus.BACKGROUND_COMPLETED
                             && trace.steps().stream().anyMatch(step -> step.action().equals("background_complete")));
@@ -598,15 +610,15 @@ class OrchestrationServiceTest {
 
         private final java.util.List<AgentRunRequest> requests = new java.util.ArrayList<>();
         private final CountDownLatch childStarted = new CountDownLatch(1);
-        private final CountDownLatch releaseChild = new CountDownLatch(1);
+        private final CountDownLatch readinessChild = new CountDownLatch(1);
 
         @Override
         public Mono<AgentReply> complete(AgentRunRequest request) {
             requests.add(request);
             childStarted.countDown();
             return Mono.fromCallable(() -> {
-                if (!releaseChild.await(2, TimeUnit.SECONDS)) {
-                    throw new IllegalStateException("child was not released");
+                if (!readinessChild.await(2, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("child was not readinessd");
                 }
                 return new AgentReply("background-answer");
             });
@@ -617,8 +629,8 @@ class OrchestrationServiceTest {
             return Flux.empty();
         }
 
-        private void release() {
-            releaseChild.countDown();
+        private void readiness() {
+            readinessChild.countDown();
         }
     }
 }

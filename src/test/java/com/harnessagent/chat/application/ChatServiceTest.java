@@ -19,7 +19,7 @@ import com.harnessagent.production.config.ProductionRuntimeProperties;
 import com.harnessagent.production.infrastructure.InMemoryAgentStateStore;
 import com.harnessagent.production.telemetry.RuntimeTelemetry;
 import com.harnessagent.production.state.StateStorePlan;
-import com.harnessagent.production.state.TenantStateKeyStrategy;
+import com.harnessagent.production.state.OwnerStateKeyStrategy;
 import com.harnessagent.rag.persistence.InMemoryKnowledgeStore;
 import com.harnessagent.rag.application.KnowledgeDocumentInput;
 import com.harnessagent.rag.application.KnowledgeRetrievalPolicy;
@@ -27,6 +27,7 @@ import com.harnessagent.rag.application.KnowledgeService;
 import com.harnessagent.rag.application.LocalMemoryRagProvider;
 import com.harnessagent.rag.application.MemoryRagProviderRegistry;
 import com.harnessagent.rag.domain.KnowledgeSourceRegistration;
+import com.harnessagent.rag.domain.KnowledgeSourceType;
 import com.harnessagent.rag.domain.KnowledgeVisibility;
 import com.harnessagent.rag.application.TextChunker;
 import com.harnessagent.rag.application.TextTokenizer;
@@ -74,7 +75,7 @@ class ChatServiceTest {
 
     @Test
     void sendsDerivedRuntimeContextToAgentAndPersistsMessages() {
-        ChatResult result = chatService.chat(command("hello")).block();
+        ChatResult result = chatService.chat(ownerCommand("hello")).block();
 
         assertThat(result.message()).isEqualTo("answer:hello");
         assertThat(result.messageId()).isNotBlank();
@@ -88,7 +89,7 @@ class ChatServiceTest {
         assertThat(result.executionSummary().runtimeSessionId()).isEqualTo("agent-a:session-a");
         assertThat(agentRuntime.requests).hasSize(1);
         AgentRunRequest request = agentRuntime.requests.get(0);
-        assertThat(request.context().runtimeUserId()).isEqualTo("tenant-a:user-a");
+        assertThat(request.context().runtimeUserId()).isEqualTo("owner:user-a");
         assertThat(request.context().runtimeSessionId()).isEqualTo("agent-a:session-a");
         List<ChatMessage> storedMessages = sessionStore.listMessages(request.context());
         assertThat(storedMessages)
@@ -98,7 +99,7 @@ class ChatServiceTest {
     }
 
     @Test
-    void normalizesBlankEnterpriseIdentityToPersonalContextBeforeGovernance() {
+    void defaultsMissingIdentityToPersonalOwnerContextBeforeGovernance() {
         ChatResult result = chatService.chat(new ChatCommand(
                 null,
                 " ",
@@ -110,11 +111,11 @@ class ChatServiceTest {
                 Set.of(),
                 5)).block();
 
-        assertThat(result.runtimeUserId()).isEqualTo("personal:personal-user");
+        assertThat(result.runtimeUserId()).isEqualTo("owner:personal-user");
         assertThat(result.sessionId()).isEqualTo("session-a");
         AgentRunRequest request = agentRuntime.requests.get(0);
-        assertThat(request.context().tenantId()).isEqualTo("personal");
-        assertThat(request.context().userId()).isEqualTo("personal-user");
+        assertThat(request.context().ownerScopeId()).isEqualTo("personal");
+        assertThat(request.context().ownerId()).isEqualTo("personal-user");
         assertThat(request.context().runtimeSessionId()).isEqualTo("personal-agent:session-a");
     }
 
@@ -180,8 +181,8 @@ class ChatServiceTest {
                 new LocalSkillRepositoryAdapter(),
                 new com.harnessagent.security.application.AuthorizationService());
         skillService.refreshLocalRepository(
-                new com.harnessagent.security.domain.SecurityPrincipal(
-                        "tenant-a",
+                new com.harnessagent.security.domain.OwnerPrincipal(
+                        "personal",
                         "user-a",
                         com.harnessagent.security.domain.IdentityProviderType.INTERNAL,
                         Set.of("owner"),
@@ -194,7 +195,7 @@ class ChatServiceTest {
                 knowledgeService,
                 skillService);
 
-        service.chat(command("please analyze file workspace://docs/report.md")).block();
+        service.chat(ownerCommand("please analyze file workspace://docs/report.md")).block();
 
         AgentRunRequest request = agentRuntime.requests.get(0);
         assertThat(request.messages().get(request.messages().size() - 1).content())
@@ -217,7 +218,7 @@ class ChatServiceTest {
                 skillService);
 
         assertThatThrownBy(() -> service.chat(new ChatCommand(
-                        "tenant-a",
+                        "personal",
                         "user-a",
                         "unsafe-agent",
                         "session-unsafe-skill",
@@ -259,7 +260,7 @@ class ChatServiceTest {
                 skillService);
 
         assertThatThrownBy(() -> service.chat(new ChatCommand(
-                        "tenant-a",
+                        "personal",
                         "user-a",
                         "budget-agent",
                         "session-skill-budget",
@@ -275,7 +276,7 @@ class ChatServiceTest {
 
     @Test
     void streamsEventsAndPersistsAssistantMessageOnCompletion() {
-        StepVerifier.create(chatService.stream(command("stream me")))
+        StepVerifier.create(chatService.stream(ownerCommand("stream me")))
                 .expectNextMatches(event -> event.content().equals("started")
                         && event.channel() == AgentRuntimeChannel.SYSTEM_NOTICE)
                 .expectNextMatches(event -> event.content().equals("chunk-1")
@@ -301,7 +302,7 @@ class ChatServiceTest {
         ToolResultAgentRuntime runtime = new ToolResultAgentRuntime();
         ChatService service = new ChatService(contextFactory, sessionStore, runtime, knowledgeService);
 
-        StepVerifier.create(service.stream(command("stream with tool")))
+        StepVerifier.create(service.stream(ownerCommand("stream with tool")))
                 .expectNextCount(5)
                 .verifyComplete();
 
@@ -343,12 +344,12 @@ class ChatServiceTest {
                 new PromptInjectionGuard(),
                 new ContextCompactionService(new PersonalWorkspaceService(properties), properties));
         com.harnessagent.runtime.RuntimeContextScope context =
-                contextFactory.create("tenant-a", "user-a", "agent-a", "session-a");
+                contextFactory.create("personal", "user-a", "agent-a", "session-a");
         sessionStore.appendMessage(context, ChatMessage.user("Goal: finish workspace runtime."));
         sessionStore.appendMessage(context, ChatMessage.assistant("finding: workspace snapshot is ready."));
         sessionStore.appendMessage(context, ChatMessage.user("Decision: persist the summary. Next: test compaction."));
 
-        service.chat(command("continue with latest request")).block();
+        service.chat(ownerCommand("continue with latest request")).block();
 
         List<ChatMessage> runtimeMessages = agentRuntime.requests.get(0).messages();
         assertThat(runtimeMessages).hasSize(2);
@@ -371,19 +372,20 @@ class ChatServiceTest {
     void injectsKnowledgeAndReturnsCitationsWhenEnabled() {
         knowledgeService.ingestDocument(new KnowledgeDocumentInput(
                 new KnowledgeSourceRegistration(
-                        "tenant-a",
+                        "personal",
                         "owner-a",
+                        "",
                         "报销制度",
                         "v1",
                         KnowledgeVisibility.PUBLIC,
                         Set.of(),
-                        Set.of(),
-                        Set.of(),
-                        "manual"),
+                        "manual",
+                        KnowledgeSourceType.INLINE_TEXT,
+                        ""),
                 "发票需要在三十天内提交。"));
 
         ChatResult result = chatService.chat(new ChatCommand(
-                "tenant-a",
+                "personal",
                 "user-a",
                 "agent-a",
                 "session-rag",
@@ -422,7 +424,7 @@ class ChatServiceTest {
                 new PromptInjectionGuard());
 
         assertThatThrownBy(() -> service.chat(new ChatCommand(
-                        "tenant-a",
+                        "personal",
                         "user-a",
                         "agent-a",
                         "session-rag-provider",
@@ -440,19 +442,20 @@ class ChatServiceTest {
     void streamsCitationMetadataWhenKnowledgeIsUsed() {
         knowledgeService.ingestDocument(new KnowledgeDocumentInput(
                 new KnowledgeSourceRegistration(
-                        "tenant-a",
+                        "personal",
                         "owner-a",
+                        "",
                         "报销制度",
                         "v1",
                         KnowledgeVisibility.PUBLIC,
                         Set.of(),
-                        Set.of(),
-                        Set.of(),
-                        "manual"),
+                        "manual",
+                        KnowledgeSourceType.INLINE_TEXT,
+                        ""),
                 "发票需要在三十天内提交。"));
 
         StepVerifier.create(chatService.stream(new ChatCommand(
-                        "tenant-a",
+                        "personal",
                         "user-a",
                         "agent-a",
                         "session-rag-stream",
@@ -472,7 +475,7 @@ class ChatServiceTest {
     @Test
     void returnsNoAnswerWithoutCallingAgentWhenEvidenceIsMissing() {
         ChatResult result = chatService.chat(new ChatCommand(
-                "tenant-a",
+                "personal",
                 "user-a",
                 "agent-a",
                 "session-no-answer",
@@ -490,7 +493,7 @@ class ChatServiceTest {
         assertThat(result.executionSummary().status()).isEqualTo("knowledge_no_answer");
         assertThat(agentRuntime.requests).isEmpty();
         List<ChatMessage> storedMessages = sessionStore.listMessages(
-                contextFactory.create("tenant-a", "user-a", "agent-a", "session-no-answer"));
+                contextFactory.create("personal", "user-a", "agent-a", "session-no-answer"));
         assertThat(storedMessages)
                 .extracting(ChatMessage::content)
                 .containsExactly("没有知识的问题", result.message());
@@ -500,7 +503,7 @@ class ChatServiceTest {
     @Test
     void streamsNoAnswerMetadataWhenEvidenceIsMissing() {
         StepVerifier.create(chatService.stream(new ChatCommand(
-                        "tenant-a",
+                        "personal",
                         "user-a",
                         "agent-a",
                         "session-no-answer-stream",
@@ -545,12 +548,12 @@ class ChatServiceTest {
                 AgentSessionRecoveryService.noop(sessionStore),
                 new PromptInjectionGuard());
 
-        service.chat(command("first")).block();
+        service.chat(ownerCommand("first")).block();
 
         assertThat(budgetStore.keys()).contains("provider:dashscope");
         assertThat(budgetStore.keys()).doesNotContain("provider:echo");
         assertThatThrownBy(() -> service.chat(new ChatCommand(
-                        "tenant-a",
+                        "personal",
                         "user-a",
                         "agent-a",
                         "session-budget-2",
@@ -560,13 +563,13 @@ class ChatServiceTest {
                         Set.of(),
                         5)).block())
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("agent:tenant-a:agent-a:request_limit_exceeded");
+                .hasMessageContaining("agent:personal:agent-a:request_limit_exceeded");
     }
 
     @Test
     void recordsPendingExecutionDuringAgentCallAndClearsItAfterSuccess() {
         InMemoryAgentStateStore stateStore = new InMemoryAgentStateStore(
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.local(".state"));
         AgentSessionRecoveryService recoveryService = new AgentSessionRecoveryService(
                 sessionStore,
@@ -587,7 +590,7 @@ class ChatServiceTest {
                 recoveryService,
                 new PromptInjectionGuard());
 
-        ChatResult result = service.chat(command("recoverable")).block();
+        ChatResult result = service.chat(ownerCommand("recoverable")).block();
 
         assertThat(result.message()).isEqualTo("answer:recoverable");
         assertThat(runtime.sawPending).isTrue();
@@ -597,7 +600,7 @@ class ChatServiceTest {
     @Test
     void clearsPendingExecutionWhenStreamIsCancelled() {
         InMemoryAgentStateStore stateStore = new InMemoryAgentStateStore(
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.local(".state"));
         AgentSessionRecoveryService recoveryService = new AgentSessionRecoveryService(
                 sessionStore,
@@ -618,19 +621,19 @@ class ChatServiceTest {
                 recoveryService,
                 new PromptInjectionGuard());
 
-        StepVerifier.create(service.stream(command("cancel me")))
+        StepVerifier.create(service.stream(ownerCommand("cancel me")))
                 .thenCancel()
                 .verify();
 
         assertThat(runtime.cancelled.get()).isTrue();
-        assertThat(recoveryService.pendingExecution(contextFactory.create("tenant-a", "user-a", "agent-a", "session-a")))
+        assertThat(recoveryService.pendingExecution(contextFactory.create("personal", "user-a", "agent-a", "session-a")))
                 .isEmpty();
     }
 
     @Test
     void seedsAgentWithStoredMessageHistoryWhenAgentScopeStateIsMissing() {
         InMemoryAgentStateStore stateStore = new InMemoryAgentStateStore(
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.local(".state"));
         AgentSessionRecoveryService recoveryService = new AgentSessionRecoveryService(
                 sessionStore,
@@ -638,11 +641,11 @@ class ChatServiceTest {
                 plan -> stateStore);
         ChatService service = chatService(recoveryService);
         com.harnessagent.runtime.RuntimeContextScope context =
-                contextFactory.create("tenant-a", "user-a", "agent-a", "session-a");
+                contextFactory.create("personal", "user-a", "agent-a", "session-a");
         sessionStore.appendMessage(context, ChatMessage.user("old question"));
         sessionStore.appendMessage(context, ChatMessage.assistant("old answer"));
 
-        service.chat(command("new question")).block();
+        service.chat(ownerCommand("new question")).block();
 
         assertThat(agentRuntime.requests).hasSize(1);
         assertThat(agentRuntime.requests.get(0).messages())
@@ -656,7 +659,7 @@ class ChatServiceTest {
     @Test
     void sendsOnlyCurrentTurnWhenAgentScopeStateAlreadyExists() {
         InMemoryAgentStateStore stateStore = new InMemoryAgentStateStore(
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.local(".state"));
         AgentSessionRecoveryService recoveryService = new AgentSessionRecoveryService(
                 sessionStore,
@@ -664,12 +667,12 @@ class ChatServiceTest {
                 plan -> stateStore);
         ChatService service = chatService(recoveryService);
         com.harnessagent.runtime.RuntimeContextScope context =
-                contextFactory.create("tenant-a", "user-a", "agent-a", "session-a");
+                contextFactory.create("personal", "user-a", "agent-a", "session-a");
         sessionStore.appendMessage(context, ChatMessage.user("old question"));
         sessionStore.appendMessage(context, ChatMessage.assistant("old answer"));
         stateStore.save(context, agentScope(context, "agent_state"), "{\"remembered\":true}");
 
-        service.chat(command("new question")).block();
+        service.chat(ownerCommand("new question")).block();
 
         assertThat(recoveryService.agentScopeStatePresent(context)).isTrue();
         assertThat(agentRuntime.requests).hasSize(1);
@@ -684,7 +687,7 @@ class ChatServiceTest {
     @Test
     void recognizesAgentScopeAdapterSavedAgentStateAsRecoverableContext() {
         InMemoryAgentStateStore stateStore = new InMemoryAgentStateStore(
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.local(".state"));
         AgentSessionRecoveryService recoveryService = new AgentSessionRecoveryService(
                 sessionStore,
@@ -692,7 +695,7 @@ class ChatServiceTest {
                 plan -> stateStore);
         ChatService service = chatService(recoveryService);
         com.harnessagent.runtime.RuntimeContextScope context =
-                contextFactory.create("tenant-a", "user-a", "agent-a", "session-a");
+                contextFactory.create("personal", "user-a", "agent-a", "session-a");
         sessionStore.appendMessage(context, ChatMessage.user("old question"));
         sessionStore.appendMessage(context, ChatMessage.assistant("old answer"));
         new AgentScopeStateStoreAdapter(context, stateStore)
@@ -705,7 +708,7 @@ class ChatServiceTest {
                                 .sessionId(context.runtimeSessionId())
                                 .build());
 
-        service.chat(command("new question")).block();
+        service.chat(ownerCommand("new question")).block();
 
         assertThat(recoveryService.agentScopeStatePresent(context)).isTrue();
         assertThat(agentRuntime.requests).hasSize(1);
@@ -717,7 +720,7 @@ class ChatServiceTest {
     @Test
     void replaysStoredHistoryWhenOnlyAuxiliaryAgentScopeStateExists() {
         InMemoryAgentStateStore stateStore = new InMemoryAgentStateStore(
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.local(".state"));
         AgentSessionRecoveryService recoveryService = new AgentSessionRecoveryService(
                 sessionStore,
@@ -725,12 +728,12 @@ class ChatServiceTest {
                 plan -> stateStore);
         ChatService service = chatService(recoveryService);
         com.harnessagent.runtime.RuntimeContextScope context =
-                contextFactory.create("tenant-a", "user-a", "agent-a", "session-a");
+                contextFactory.create("personal", "user-a", "agent-a", "session-a");
         sessionStore.appendMessage(context, ChatMessage.user("old question"));
         sessionStore.appendMessage(context, ChatMessage.assistant("old answer"));
         stateStore.save(context, agentScope(context, "agent_meta"), "{\"step\":1}");
 
-        service.chat(command("new question")).block();
+        service.chat(ownerCommand("new question")).block();
 
         assertThat(recoveryService.agentScopeStatePresent(context)).isFalse();
         assertThat(agentRuntime.requests).hasSize(1);
@@ -755,8 +758,8 @@ class ChatServiceTest {
                 new PromptInjectionGuard());
     }
 
-    private static ChatCommand command(String message) {
-        return new ChatCommand("tenant-a", "user-a", "agent-a", "session-a", message);
+    private static ChatCommand ownerCommand(String message) {
+        return new ChatCommand("personal", "user-a", "agent-a", "session-a", message);
     }
 
     private PersonalSkillService skillServiceWithSkill(
@@ -790,8 +793,8 @@ class ChatServiceTest {
                 new LocalSkillRepositoryAdapter(),
                 new com.harnessagent.security.application.AuthorizationService());
         skillService.refreshLocalRepository(
-                new com.harnessagent.security.domain.SecurityPrincipal(
-                        "tenant-a",
+                new com.harnessagent.security.domain.OwnerPrincipal(
+                        "personal",
                         "user-a",
                         com.harnessagent.security.domain.IdentityProviderType.INTERNAL,
                         Set.of("owner"),

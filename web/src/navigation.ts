@@ -15,19 +15,8 @@ export interface NavigationItem {
   id: RouteId;
   label: string;
   enabled: boolean;
-  roles: string[];
   Icon: ComponentType<{ size?: number; strokeWidth?: number }>;
 }
-
-const roleSets: Record<RouteId, string[]> = {
-  chat: [],
-  tasks: [],
-  files: [],
-  knowledge: [],
-  tools: [],
-  agent: [],
-  trace: []
-};
 
 const labels: Record<RouteId, string> = {
   chat: "Chat",
@@ -49,19 +38,11 @@ const icons: Record<RouteId, NavigationItem["Icon"]> = {
   trace: SearchCode
 };
 
-export function canAccess(requiredRoles: string[], userRoles: string[]): boolean {
-  if (requiredRoles.length === 0) {
-    return true;
-  }
-  return requiredRoles.some(role => userRoles.includes(role));
-}
-
-export function getNavigationItems(userRoles: string[]): NavigationItem[] {
-  return (Object.keys(roleSets) as RouteId[]).map(id => ({
+export function getNavigationItems(): NavigationItem[] {
+  return (Object.keys(labels) as RouteId[]).map(id => ({
     id,
     label: labels[id],
-    enabled: canAccess(roleSets[id], userRoles),
-    roles: roleSets[id],
+    enabled: true,
     Icon: icons[id]
   }));
 }

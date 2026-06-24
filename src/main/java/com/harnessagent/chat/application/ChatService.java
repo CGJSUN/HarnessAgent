@@ -19,7 +19,7 @@ import com.harnessagent.security.application.PromptInjectionGuard;
 import com.harnessagent.security.application.SafeLogFields;
 import com.harnessagent.security.domain.IdentityProviderType;
 import com.harnessagent.security.domain.SecurityDecision;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.skill.application.PersonalSkillService;
 import com.harnessagent.skill.domain.SkillExecutionRequest;
 import com.harnessagent.skill.domain.SkillExecutionResult;
@@ -27,7 +27,7 @@ import com.harnessagent.rag.retrieval.KnowledgeRetrievalResult;
 import com.harnessagent.rag.application.KnowledgeService;
 import com.harnessagent.rag.application.LocalMemoryRagProvider;
 import com.harnessagent.rag.application.MemoryRagProviderRegistry;
-import com.harnessagent.rag.domain.RetrievalPrincipal;
+import com.harnessagent.rag.domain.OwnerRetrievalPrincipal;
 import com.harnessagent.rag.domain.RetrievedKnowledge;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.runtime.RuntimeContextScope;
@@ -261,10 +261,9 @@ public class ChatService {
         recordRagTelemetry(effective, knowledge);
         if (knowledge != null && !knowledge.answered()) {
             log.warn(
-                    "chat rag no_answer tenantId={} agentId={} userHash={} sessionHash={} reason={}",
-                    effective.tenantId(),
+                    "chat rag no_answer ownerHash={} agentId={} sessionHash={} reason={}",
+                    SafeLogFields.owner(effective.ownerId()),
                     effective.agentId(),
-                    SafeLogFields.user(effective.userId()),
                     SafeLogFields.session(effective.sessionId()),
                     SafeLogFields.reasonCode(knowledge.message()));
             ChatMessage assistant = ChatMessage.assistant(knowledge.message());
@@ -284,10 +283,9 @@ public class ChatService {
                 .doOnSuccess(result -> recordChatTelemetry(effective, startedAt, "succeeded"))
                 .doOnError(error -> {
                     log.error(
-                            "chat model failed tenantId={} agentId={} userHash={} sessionHash={} errorType={}",
-                            effective.tenantId(),
+                            "chat model failed ownerHash={} agentId={} sessionHash={} errorType={}",
+                            SafeLogFields.owner(effective.ownerId()),
                             effective.agentId(),
-                            SafeLogFields.user(effective.userId()),
                             SafeLogFields.session(effective.sessionId()),
                             error.getClass().getSimpleName());
                     recordChatTelemetry(effective, startedAt, "failed");
@@ -308,10 +306,9 @@ public class ChatService {
         recordRagTelemetry(effective, knowledge);
         if (knowledge != null && !knowledge.answered()) {
             log.warn(
-                    "chat stream rag no_answer tenantId={} agentId={} userHash={} sessionHash={} reason={}",
-                    effective.tenantId(),
+                    "chat stream rag no_answer ownerHash={} agentId={} sessionHash={} reason={}",
+                    SafeLogFields.owner(effective.ownerId()),
                     effective.agentId(),
-                    SafeLogFields.user(effective.userId()),
                     SafeLogFields.session(effective.sessionId()),
                     SafeLogFields.reasonCode(knowledge.message()));
             sessionStore.appendMessage(context, userMessage);
@@ -363,10 +360,9 @@ public class ChatService {
                 .doOnComplete(() -> recordChatTelemetry(effective, startedAt, "succeeded"))
                 .doOnError(error -> {
                     log.error(
-                            "chat stream failed tenantId={} agentId={} userHash={} sessionHash={} errorType={}",
-                            effective.tenantId(),
+                            "chat stream failed ownerHash={} agentId={} sessionHash={} errorType={}",
+                            SafeLogFields.owner(effective.ownerId()),
                             effective.agentId(),
-                            SafeLogFields.user(effective.userId()),
                             SafeLogFields.session(effective.sessionId()),
                             error.getClass().getSimpleName());
                     recordChatTelemetry(effective, startedAt, "failed");
@@ -502,12 +498,10 @@ public class ChatService {
             return messages;
         }
         SkillExecutionRequest request = new SkillExecutionRequest(
-                new SecurityPrincipal(
-                        command.tenantId(),
-                        command.userId(),
-                        IdentityProviderType.INTERNAL,
-                        safeSet(command.roles()),
-                        safeSet(command.departments())),
+                new OwnerPrincipal(
+                        command.ownerScopeId(),
+                        command.ownerId(),
+                        IdentityProviderType.INTERNAL),
                 command.agentId(),
                 command.message(),
                 command.message(),
@@ -517,8 +511,8 @@ public class ChatService {
                 false,
                 false,
                 Map.of(
-                        "tenantId", command.tenantId(),
-                        "userId", command.userId(),
+                        "ownerScopeId", command.ownerScopeId(),
+                        "ownerId", command.ownerId(),
                         "agentId", command.agentId(),
                         "sessionId", command.sessionId()));
         Optional<SkillExecutionResult> result = personalSkillService.tryExecute(request);
@@ -542,48 +536,40 @@ public class ChatService {
         if (!command.knowledgeEnabled()) {
             return null;
         }
-        RetrievalPrincipal principal = new RetrievalPrincipal(
-                command.tenantId(),
-                command.userId(),
-                command.agentId(),
-                safeSet(command.departments()),
-                safeSet(command.roles()));
+        OwnerRetrievalPrincipal principal = OwnerRetrievalPrincipal.forOwner(command.ownerId(), command.agentId());
         return memoryRagProviderRegistry.provider(properties.getMemoryRag().getProvider())
                 .retrieve(principal, command.message(), command.knowledgeLimit());
     }
 
     private RuntimeContextScope context(ChatCommand command) {
         requireMessage(command.message());
-        return runtimeContextFactory.create(
-                command.tenantId(), command.userId(), command.agentId(), command.sessionId());
+        return runtimeContextFactory.createPersonal(
+                command.ownerId(), command.agentId(), command.sessionId());
     }
 
     private static ChatCommand effectiveCommand(ChatCommand command, RuntimeContextScope context) {
         return new ChatCommand(
-                context.tenantId(),
-                context.userId(),
+                context.ownerScopeId(),
+                context.ownerId(),
                 context.agentId(),
                 context.sessionId(),
                 command.message(),
                 command.knowledgeEnabled(),
-                safeSet(command.departments()),
-                safeSet(command.roles()),
                 command.knowledgeLimit());
     }
 
     private void enforceBudget(ChatCommand command, List<ChatMessage> runtimeMessages) {
         ModelSelection selection = modelConfigurationResolver.resolve(command.agentId());
-        BudgetDecision decision = budgetLimiter.tryConsume(new BudgetScope(
-                command.tenantId(),
-                command.userId(),
+        BudgetDecision decision = budgetLimiter.tryConsume(BudgetScope.forOwner(
+                command.ownerId(),
                 command.agentId(),
                 firstNonBlank(selection.providerId(), properties.getDefaultProvider(), "default")),
                 estimateTokens(runtimeMessages),
                 selection.budgetLimit());
         telemetry.record(
                 TelemetryEventType.TOKEN,
-                command.tenantId(),
-                command.userId(),
+                command.ownerScopeId(),
+                command.ownerId(),
                 command.agentId(),
                 "budget",
                 Duration.ZERO,
@@ -594,10 +580,9 @@ public class ChatService {
                         "usedTokens", decision.usedTokens()));
         if (!decision.allowed()) {
             log.warn(
-                    "chat budget rejected tenantId={} agentId={} userHash={} reason={} usedRequests={} usedTokens={}",
-                    command.tenantId(),
+                    "chat budget rejected ownerHash={} agentId={} reason={} usedRequests={} usedTokens={}",
+                    SafeLogFields.owner(command.ownerId()),
                     command.agentId(),
-                    SafeLogFields.user(command.userId()),
                     SafeLogFields.reasonCode(decision.reason()),
                     decision.usedRequests(),
                     decision.usedTokens());
@@ -609,10 +594,9 @@ public class ChatService {
         SecurityDecision decision = promptInjectionGuard.inspectText(command.message());
         if (!decision.allowed()) {
             log.warn(
-                    "chat prompt safety rejected tenantId={} agentId={} userHash={} sessionHash={} reason={}",
-                    command.tenantId(),
+                    "chat prompt safety rejected ownerHash={} agentId={} sessionHash={} reason={}",
+                    SafeLogFields.owner(command.ownerId()),
                     command.agentId(),
-                    SafeLogFields.user(command.userId()),
                     SafeLogFields.session(command.sessionId()),
                     SafeLogFields.reasonCode(decision.reason()));
             throw new IllegalStateException("Unsafe prompt rejected: " + decision.reason());
@@ -624,10 +608,9 @@ public class ChatService {
             SecurityDecision decision = promptInjectionGuard.inspectText(message.content());
             if (!decision.allowed()) {
                 log.warn(
-                        "chat runtime prompt safety rejected tenantId={} agentId={} userHash={} sessionHash={} reason={}",
-                        command.tenantId(),
+                        "chat runtime prompt safety rejected ownerHash={} agentId={} sessionHash={} reason={}",
+                        SafeLogFields.owner(command.ownerId()),
                         command.agentId(),
-                        SafeLogFields.user(command.userId()),
                         SafeLogFields.session(command.sessionId()),
                         SafeLogFields.reasonCode(decision.reason()));
                 throw new IllegalStateException("Unsafe prompt rejected: " + decision.reason());
@@ -641,8 +624,8 @@ public class ChatService {
         }
         telemetry.record(
                 TelemetryEventType.RAG,
-                command.tenantId(),
-                command.userId(),
+                command.ownerScopeId(),
+                command.ownerId(),
                 command.agentId(),
                 "knowledge-service",
                 Duration.ZERO,
@@ -655,8 +638,8 @@ public class ChatService {
     private void recordChatTelemetry(ChatCommand command, Instant startedAt, String status) {
         telemetry.record(
                 TelemetryEventType.API,
-                command.tenantId(),
-                command.userId(),
+                command.ownerScopeId(),
+                command.ownerId(),
                 command.agentId(),
                 "chat",
                 Duration.between(startedAt, Instant.now()),

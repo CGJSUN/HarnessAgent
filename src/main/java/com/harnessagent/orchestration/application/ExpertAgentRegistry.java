@@ -22,9 +22,9 @@ public class ExpertAgentRegistry {
         return Optional.ofNullable(agents.get(agentId));
     }
 
-    public List<ExpertAgentDefinition> list(String tenantId) {
+    public List<ExpertAgentDefinition> list(String ownerScopeId) {
         return agents.values().stream()
-                .filter(agent -> agent.tenantId().equals(tenantId))
+                .filter(agent -> agent.ownerScopeId().equals(ownerScopeId))
                 .sorted(Comparator.comparing(ExpertAgentDefinition::name))
                 .toList();
     }

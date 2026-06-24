@@ -4,8 +4,9 @@ import com.harnessagent.api.ApiIdentityResolver;
 import com.harnessagent.api.request.ToolConfirmationResumeRequest;
 import com.harnessagent.api.request.ToolExecutionApiRequest;
 import com.harnessagent.api.request.ToolRegistrationRequest;
-import com.harnessagent.tooling.domain.ToolAuditPolicy;
-import com.harnessagent.tooling.audit.ToolAuditRecord;
+import com.harnessagent.runtime.PersonalRuntimeDefaults;
+import com.harnessagent.tooling.domain.ToolActivityPolicy;
+import com.harnessagent.tooling.activity.ToolActivityRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolOutputSchema;
 import com.harnessagent.tooling.execution.ToolExecutionCommand;
@@ -26,7 +27,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 
 @RestController
 @RequestMapping("/api/tools")
@@ -43,7 +44,7 @@ public class ToolController {
     @PostMapping
     public ToolDefinition register(@RequestBody ToolRegistrationRequest request) {
         return toolService.registerTool(new ToolRegistration(
-                request.tenantId(),
+                PersonalRuntimeDefaults.PERSONAL_SCOPE_ID,
                 request.name(),
                 request.description(),
                 request.ownerSystem(),
@@ -61,43 +62,35 @@ public class ToolController {
                         safeSet(request.workspacePathParameters())),
                 ToolOutputSchema.structured(request.outputType(), safeMap(request.outputSchema())),
                 new ToolPermissionPolicy(
-                        singleton(request.tenantId()),
-                        safeSet(request.allowedUsers()),
+                        safeSet(request.allowedOwnerIds()),
                         safeSet(request.allowedAgents()),
-                        safeSet(request.allowedDepartments()),
-                        safeSet(request.allowedRoles())),
-                ToolAuditPolicy.enabled(
+                        safeSet(request.deniedOwnerIds())),
+                ToolActivityPolicy.enabled(
                         safeSet(request.sensitiveParameters()),
                         safeSet(request.sensitiveResultFields())),
                 request.workloadType()));
     }
 
     @GetMapping
-    public List<ToolDefinition> list(@RequestParam String tenantId) {
-        return toolService.listTools(tenantId);
+    public List<ToolDefinition> list(@RequestParam(required = false) String ownerId) {
+        return toolService.listTools(PersonalRuntimeDefaults.PERSONAL_SCOPE_ID);
     }
 
     @PostMapping("/execute")
     public ToolExecutionResult execute(
             @RequestHeader Map<String, String> headers,
             @RequestBody ToolExecutionApiRequest request) {
-        com.harnessagent.security.domain.SecurityPrincipal principal = identityResolver.resolveTrusted(
+        com.harnessagent.security.domain.OwnerPrincipal principal = identityResolver.resolveTrusted(
                 headers,
-                request.tenantId(),
-                request.userId());
+                request.ownerId());
         String agentId = identityResolver.resolveTrustedAgentId(headers, request.agentId());
-        return toolService.execute(new ToolExecutionCommand(
-                principal.tenantId(),
-                principal.userId(),
+        return toolService.execute(ToolExecutionCommand.forOwner(
+                principal.ownerId(),
                 agentId,
                 request.sessionId(),
                 request.toolId(),
                 request.parameters(),
-                principal.departments(),
-                principal.roles(),
                 request.confirmed(),
-                request.approvalId(),
-                request.reviewerId(),
                 request.idempotencyKey()));
     }
 
@@ -105,38 +98,31 @@ public class ToolController {
     public ToolExecutionResult reject(
             @RequestHeader Map<String, String> headers,
             @RequestBody ToolExecutionApiRequest request) {
-        com.harnessagent.security.domain.SecurityPrincipal principal = identityResolver.resolveTrusted(
+        com.harnessagent.security.domain.OwnerPrincipal principal = identityResolver.resolveTrusted(
                 headers,
-                request.tenantId(),
-                request.userId());
+                request.ownerId());
         String agentId = identityResolver.resolveTrustedAgentId(headers, request.agentId());
-        return toolService.reject(new ToolExecutionCommand(
-                principal.tenantId(),
-                principal.userId(),
+        return toolService.reject(ToolExecutionCommand.forOwner(
+                principal.ownerId(),
                 agentId,
                 request.sessionId(),
                 request.toolId(),
                 request.parameters(),
-                principal.departments(),
-                principal.roles(),
                 false,
-                request.approvalId(),
-                request.reviewerId(),
                 request.idempotencyKey()));
     }
 
     @GetMapping("/confirmations")
     public List<ToolPendingConfirmation> listPendingConfirmations(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam String sessionId) {
-        SecurityPrincipal principal = identityResolver.resolveTrusted(headers, tenantId, userId);
+        OwnerPrincipal principal = new OwnerPrincipal(identityResolver.resolveTrustedOwner(headers, ownerId));
         String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
         return toolService.listPendingConfirmations(
-                principal.tenantId(),
-                principal.userId(),
+                principal.scopeId(),
+                principal.ownerId(),
                 trustedAgentId,
                 sessionId);
     }
@@ -146,37 +132,29 @@ public class ToolController {
             @RequestHeader Map<String, String> headers,
             @PathVariable String confirmationId,
             @RequestBody ToolConfirmationResumeRequest request) {
-        SecurityPrincipal principal = identityResolver.resolveTrusted(headers, request.tenantId(), request.userId());
+        OwnerPrincipal principal = identityResolver.resolveTrusted(headers, request.ownerId());
         String agentId = identityResolver.resolveTrustedAgentId(headers, request.agentId());
         return toolService.resumeConfirmation(
                 confirmationId,
                 request.action(),
                 new ToolExecutionCommand(
-                        principal.tenantId(),
-                        principal.userId(),
+                        principal.scopeId(),
+                        principal.ownerId(),
                         agentId,
                         request.sessionId(),
                         confirmationId,
                         request.parameters(),
-                        principal.departments(),
-                        principal.roles(),
                         true,
-                        request.approvalId(),
-                        request.reviewerId(),
                         request.idempotencyKey()));
     }
 
-    @GetMapping("/audit")
-    public List<ToolAuditRecord> listAudit(@RequestParam String tenantId) {
-        return toolService.listAudit(tenantId);
+    @GetMapping("/activity")
+    public List<ToolActivityRecord> listActivity(@RequestParam(required = false) String ownerId) {
+        return toolService.listActivity(PersonalRuntimeDefaults.PERSONAL_SCOPE_ID);
     }
 
     private static Set<String> safeSet(Set<String> input) {
         return input == null ? Set.of() : input;
-    }
-
-    private static Set<String> singleton(String value) {
-        return value == null || value.isBlank() ? Set.of() : Set.of(value.trim());
     }
 
     private static Map<String, Object> safeMap(Map<String, Object> input) {

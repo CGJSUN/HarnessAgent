@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.harnessagent.config.HarnessAgentProperties;
-import com.harnessagent.console.application.AuditSearchFilter;
+import com.harnessagent.console.application.ActivitySearchFilter;
 import com.harnessagent.console.application.ConsoleService;
 import com.harnessagent.console.view.AgentManagementView;
 import com.harnessagent.console.view.CostUsageReport;
@@ -21,15 +21,16 @@ import com.harnessagent.rag.application.TextTokenizer;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.security.application.AuthorizationService;
 import com.harnessagent.security.domain.IdentityProviderType;
-import com.harnessagent.security.application.SecurityAuditService;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.application.SecurityActivityService;
+import com.harnessagent.security.domain.OwnerPrincipal;
+import com.harnessagent.security.domain.Permission;
+import com.harnessagent.security.domain.ResourceAccessPolicy;
+import com.harnessagent.security.domain.ResourceType;
 import com.harnessagent.security.application.SensitiveDataRedactor;
-import com.harnessagent.security.application.SkillGovernanceService;
-import com.harnessagent.security.domain.SkillVersion;
 import com.harnessagent.session.domain.ChatMessage;
 import com.harnessagent.session.persistence.InMemorySessionStore;
 import com.harnessagent.tooling.persistence.InMemoryToolStore;
-import com.harnessagent.tooling.domain.ToolAuditPolicy;
+import com.harnessagent.tooling.domain.ToolActivityPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolParameterSchema;
 import com.harnessagent.tooling.domain.ToolPermissionPolicy;
@@ -43,9 +44,6 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import com.harnessagent.tooling.execution.ToolExecutionCommand;
-import com.harnessagent.security.domain.Permission;
-import com.harnessagent.security.domain.ResourceAccessPolicy;
-import com.harnessagent.security.domain.ResourceType;
 
 class ConsoleServiceTest {
 
@@ -58,9 +56,8 @@ class ConsoleServiceTest {
             new TextChunker(),
             new TextTokenizer(),
             new KnowledgeRetrievalPolicy());
-    private final SkillGovernanceService skillGovernanceService = new SkillGovernanceService();
     private final InMemoryRuntimeTelemetry telemetry = new InMemoryRuntimeTelemetry(true);
-    private final SecurityAuditService securityAuditService = new SecurityAuditService(
+    private final SecurityActivityService securityActivityService = new SecurityActivityService(
             new SensitiveDataRedactor(),
             new AuthorizationService());
     private final ConsoleService service = new ConsoleService(
@@ -69,14 +66,13 @@ class ConsoleServiceTest {
             properties,
             toolService,
             knowledgeService,
-            skillGovernanceService,
             telemetry,
-            securityAuditService);
+            securityActivityService);
 
     @Test
     void userConsoleShowsHistoryForCurrentUserAndAgent() {
         sessionStore.appendMessage(
-                contextFactory.create("tenant-a", "user-a", "agent-a", "session-a"),
+                contextFactory.create("owner-scope-a", "user-a", "agent-a", "session-a"),
                 ChatMessage.user("hello"));
 
         UserConsoleView view = service.userConsole(user(), "agent-a", "session-a");
@@ -86,59 +82,57 @@ class ConsoleServiceTest {
     }
 
     @Test
-    void adminCanManageAgentPromptAndAuditChange() {
-        AgentManagementView view = service.updateAgentPrompt(admin(), "agent-a", "新的系统提示词");
+    void ownerCanManageAgentPromptAndActivityChange() {
+        AgentManagementView view = service.updateAgentPrompt(user(), "agent-a", "新的系统提示词");
 
         assertThat(view.systemPrompt()).isEqualTo("新的系统提示词");
-        assertThat(securityAuditService.search(admin(), "tenant-a", auditPolicy())).hasSize(1);
+        assertThat(securityActivityService.search(user(), "owner-scope-a", activityPolicy())).hasSize(1);
     }
 
     @Test
-    void nonAdminCannotAccessManagementViews() {
-        assertThatThrownBy(() -> service.listAgents(user()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("admin");
+    void ownerCanListPersonalDiagnosticAgents() {
+        assertThat(service.listAgents(user()))
+                .extracting(AgentManagementView::agentId)
+                .containsExactly("agent-a");
     }
 
     @Test
-    void opsCanReadMetricsAndCostReports() {
+    void ownerCanReadMetricsAndCostReports() {
         telemetry.record(
                 TelemetryEventType.TOKEN,
-                "tenant-a",
+                "owner-scope-a",
                 "user-a",
                 "agent-a",
                 "budget",
                 Duration.ofMillis(3),
                 Map.of("usedTokens", 42, "providerId", "dashscope"));
 
-        OperationalMetricSummary metrics = service.metrics(ops());
-        CostUsageReport cost = service.cost(ops(), "agent-a", "dashscope");
+        OperationalMetricSummary metrics = service.metrics(user());
+        CostUsageReport cost = service.cost(user(), "agent-a", "dashscope");
 
         assertThat(metrics.totalDurationMillis()).isEqualTo(3);
         assertThat(cost.estimatedTokens()).isEqualTo(42);
     }
 
     @Test
-    void auditorCanSearchAuditsWithFilters() {
-        securityAuditService.record(
-                admin(),
-                com.harnessagent.security.domain.ResourceType.AGENT,
+    void ownerCanSearchOwnActivitysWithFilters() {
+        securityActivityService.record(
+                user(),
+                ResourceType.AGENT,
                 "agent-a",
                 "UPDATE_AGENT_PROMPT",
                 Map.of("agentId", "agent-a"));
 
-        assertThat(service.auditSearch(
-                auditor(),
-                new AuditSearchFilter(null, null, "agent-a", "UPDATE_AGENT_PROMPT", null, null)).securityAudit())
+        assertThat(service.activitySearch(
+                user(),
+                new ActivitySearchFilter(null, null, "agent-a", "UPDATE_AGENT_PROMPT", null, null)).securityActivity())
                 .hasSize(1);
-        assertThatThrownBy(() -> service.auditSearch(user()))
-                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    void adminCanDisableToolAndManageSkillLifecycle() {
+    void ownerCanDisableToolAndLegacySkillGovernanceIsDisabled() {
         ToolDefinition tool = toolService.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "crm.lookup",
                 "lookup",
                 "CRM",
@@ -150,23 +144,17 @@ class ConsoleServiceTest {
                 true,
                 ToolParameterSchema.empty(),
                 ToolPermissionPolicy.allowAll(),
-                ToolAuditPolicy.standard()));
-        SkillVersion proposed = skillGovernanceService.propose(
-                "tenant-a", "finance-helper", "1.0.0", "git://skills/finance", "owner-a");
+                ToolActivityPolicy.standard()));
 
-        ToolDefinition disabled = service.setToolEnabled(admin(), tool.id(), false);
-        SkillVersion approved = service.approveSkill(admin(), proposed.id());
-        SkillVersion published = service.publishSkill(admin(), approved.id());
-        SkillVersion disabledSkill = service.disableSkill(admin(), published.id());
+        ToolDefinition disabled = service.setToolEnabled(user(), tool.id(), false);
 
         assertThat(disabled.enabled()).isFalse();
-        assertThat(disabledSkill.status().name()).isEqualTo("DISABLED");
     }
 
     @Test
     void userConsoleIncludesPendingToolOperationContext() {
         ToolDefinition tool = toolService.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "ticket.update",
                 "update ticket",
                 "ServiceDesk",
@@ -178,9 +166,9 @@ class ConsoleServiceTest {
                 true,
                 new ToolParameterSchema(Set.of("ticketId"), Set.of(), Map.of(), Set.of()),
                 ToolPermissionPolicy.allowAll(),
-                ToolAuditPolicy.standard()));
-        toolService.execute(new com.harnessagent.tooling.execution.ToolExecutionCommand(
-                "tenant-a",
+                ToolActivityPolicy.standard()));
+        toolService.execute(new ToolExecutionCommand(
+                "owner-scope-a",
                 "user-a",
                 "agent-a",
                 "session-a",
@@ -216,33 +204,19 @@ class ConsoleServiceTest {
         return properties;
     }
 
-    private static SecurityPrincipal user() {
-        return principal("user-a", Set.of("employee"));
+    private static OwnerPrincipal user() {
+        return principal("user-a", Set.of());
     }
 
-    private static SecurityPrincipal admin() {
-        return principal("admin-a", Set.of("admin"));
+    private static OwnerPrincipal principal(String userId, Set<String> owners) {
+        return new OwnerPrincipal("owner-scope-a", userId, IdentityProviderType.INTERNAL, owners, Set.of());
     }
 
-    private static SecurityPrincipal ops() {
-        return principal("ops-a", Set.of("ops"));
-    }
-
-    private static SecurityPrincipal auditor() {
-        return principal("auditor-a", Set.of("auditor"));
-    }
-
-    private static SecurityPrincipal principal(String userId, Set<String> roles) {
-        return new SecurityPrincipal("tenant-a", userId, IdentityProviderType.INTERNAL, roles, Set.of());
-    }
-
-    private static com.harnessagent.security.domain.ResourceAccessPolicy auditPolicy() {
-        return new com.harnessagent.security.domain.ResourceAccessPolicy(
-                com.harnessagent.security.domain.ResourceType.AUDIT,
-                "tenant-a",
-                Set.of(),
-                Set.of("admin"),
-                Set.of(),
-                Set.of(com.harnessagent.security.domain.Permission.SEARCH_AUDIT));
+    private static ResourceAccessPolicy activityPolicy() {
+        return ResourceAccessPolicy.ownerOnly(
+                "owner-scope-a",
+                "user-a",
+                ResourceType.ACTIVITY,
+                Permission.SEARCH_ACTIVITY);
     }
 }

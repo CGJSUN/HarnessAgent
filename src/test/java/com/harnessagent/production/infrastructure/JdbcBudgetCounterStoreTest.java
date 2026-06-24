@@ -18,12 +18,12 @@ class JdbcBudgetCounterStoreTest {
         JdbcBudgetCounterStore first = store(dataSource);
         JdbcBudgetCounterStore second = store(dataSource);
 
-        assertThat(first.increment("tenant:tenant-a", 10))
-                .isEqualTo(new BudgetCounter("tenant:tenant-a", 1, 10));
-        assertThat(second.increment("tenant:tenant-a", 5))
-                .isEqualTo(new BudgetCounter("tenant:tenant-a", 2, 15));
-        assertThat(second.increment("tenant:tenant-b", 7))
-                .isEqualTo(new BudgetCounter("tenant:tenant-b", 1, 7));
+        assertThat(first.increment("owner-scope:owner-scope-a", 10))
+                .isEqualTo(new BudgetCounter("owner-scope:owner-scope-a", 1, 10));
+        assertThat(second.increment("owner-scope:owner-scope-a", 5))
+                .isEqualTo(new BudgetCounter("owner-scope:owner-scope-a", 2, 15));
+        assertThat(second.increment("owner-scope:owner-scope-b", 7))
+                .isEqualTo(new BudgetCounter("owner-scope:owner-scope-b", 1, 7));
     }
 
     private static JdbcBudgetCounterStore store(DataSource dataSource) {
@@ -35,6 +35,11 @@ class JdbcBudgetCounterStoreTest {
                 .setType(EmbeddedDatabaseType.H2)
                 .generateUniqueName(true)
                 .addScript("classpath:db/migration/V1__durable_persistence.sql")
+                .addScript("classpath:db/migration/V3__session_message_content_blocks.sql")
+                .addScript("classpath:db/migration/V5__tool_workload_type.sql")
+                .addScript("classpath:db/migration/V7__personal_memory_rag_metadata.sql")
+                .addScript("classpath:db/migration/V9__personal_tooling_hitl.sql")
+                .addScript("classpath:db/migration/V11__owner_scope_persistence.sql")
                 .build();
     }
 }

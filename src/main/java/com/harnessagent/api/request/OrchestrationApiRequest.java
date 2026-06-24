@@ -1,15 +1,11 @@
 package com.harnessagent.api.request;
 
 import java.util.Map;
-import java.util.Set;
 import com.harnessagent.orchestration.domain.DelegationMode;
 import com.harnessagent.orchestration.domain.FailureStrategy;
 
 public record OrchestrationApiRequest(
-        String tenantId,
-        String userId,
-        Set<String> roles,
-        Set<String> departments,
+        String ownerId,
         String supervisorAgentId,
         String taskIntent,
         String task,

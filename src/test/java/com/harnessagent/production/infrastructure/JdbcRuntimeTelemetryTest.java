@@ -38,7 +38,7 @@ class JdbcRuntimeTelemetryTest {
 
             TelemetryEvent event = writer.record(
                     TelemetryEventType.TOOL,
-                    "tenant-a",
+                    "owner-scope-a",
                     "user-a",
                     "agent-a",
                     "tool-service",
@@ -48,7 +48,7 @@ class JdbcRuntimeTelemetryTest {
                             "email", "owner@example.com",
                             "status", "SUCCEEDED"));
 
-            assertThat(reader.list("tenant-a"))
+            assertThat(reader.list("owner-scope-a"))
                     .singleElement()
                     .satisfies(stored -> {
                         assertThat(stored.id()).isEqualTo(event.id());
@@ -59,7 +59,7 @@ class JdbcRuntimeTelemetryTest {
                                 .containsEntry("email", "[REDACTED]")
                                 .containsEntry("status", "SUCCEEDED");
                     });
-            assertThat(reader.list("tenant-b")).isEmpty();
+            assertThat(reader.list("owner-scope-b")).isEmpty();
         } finally {
             database.shutdown();
         }
@@ -79,9 +79,9 @@ class JdbcRuntimeTelemetryTest {
             JdbcRuntimeTelemetry telemetry = new JdbcRuntimeTelemetry(
                     jdbc, new ObjectMapper().findAndRegisterModules(), new SensitiveDataRedactor(), properties);
 
-            telemetry.record(TelemetryEventType.API, "tenant-a", "user-a", "agent-a", "api", Duration.ZERO, Map.of());
+            telemetry.record(TelemetryEventType.API, "owner-scope-a", "user-a", "agent-a", "api", Duration.ZERO, Map.of());
 
-            assertThat(telemetry.list("tenant-a")).isEmpty();
+            assertThat(telemetry.list("owner-scope-a")).isEmpty();
         } finally {
             database.shutdown();
         }

@@ -1,11 +1,11 @@
 package com.harnessagent.skill.domain;
 
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import java.util.Map;
 import java.util.Set;
 
 public record SkillExecutionRequest(
-        SecurityPrincipal principal,
+        OwnerPrincipal principal,
         String agentId,
         String taskIntent,
         String task,

@@ -9,7 +9,7 @@ public interface SnapshotStore {
 
     Optional<Snapshot> load(String snapshotId);
 
-    List<SnapshotMetadata> list(String tenantId, String agentId, String sessionId);
+    List<SnapshotMetadata> list(String ownerScopeId, String agentId, String sessionId);
 
     boolean delete(String snapshotId);
 }

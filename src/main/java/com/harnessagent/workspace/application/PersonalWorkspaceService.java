@@ -99,7 +99,7 @@ public class PersonalWorkspaceService {
 
     private Path rootDirectory(RuntimeContextScope context) {
         String agentId = safePathSegment(context.agentId(), "agentId");
-        String ownerId = safePathSegment(context.userId(), "userId");
+        String ownerId = safePathSegment(context.ownerId(), "userId");
         HarnessAgentProperties.AgentDefinition agentDefinition = properties.getAgents().get(agentId);
         String configured = agentDefinition == null ? null : agentDefinition.getWorkspace();
         Path agentRoot = configured == null || configured.isBlank()
@@ -125,9 +125,9 @@ public class PersonalWorkspaceService {
         Map<String, String> relativeDirectories = new LinkedHashMap<>();
         directories.forEach((key, path) -> relativeDirectories.put(key, path.getFileName().toString()));
         return new PersonalWorkspaceMetadata(
-                safePathSegment(context.userId(), "userId"),
+                safePathSegment(context.ownerId(), "userId"),
                 safePathSegment(context.agentId(), "agentId"),
-                safePathSegment(context.userId(), "userId") + "/" + safePathSegment(context.agentId(), "agentId"),
+                safePathSegment(context.ownerId(), "userId") + "/" + safePathSegment(context.agentId(), "agentId"),
                 safePathSegment(context.agentId(), "agentId") + ":*",
                 relativeDirectories,
                 now,

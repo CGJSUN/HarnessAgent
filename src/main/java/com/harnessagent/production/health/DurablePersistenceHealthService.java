@@ -3,7 +3,7 @@ package com.harnessagent.production.health;
 import com.harnessagent.persistence.DurableBackendType;
 import com.harnessagent.persistence.DurableStoreCapability;
 import com.harnessagent.rag.persistence.KnowledgeStore;
-import com.harnessagent.security.persistence.SecurityAuditStore;
+import com.harnessagent.security.persistence.SecurityActivityStore;
 import com.harnessagent.session.persistence.SessionStore;
 import com.harnessagent.tooling.persistence.ToolStore;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +37,7 @@ public class DurablePersistenceHealthService {
 
     private static final List<String> REQUIRED_TABLES = List.of(
             "ha_session_messages",
-            "ha_security_audit",
+            "ha_security_activity",
             "ha_budget_counters",
             "ha_agent_state",
             "ha_snapshot_metadata",
@@ -48,19 +48,38 @@ public class DurablePersistenceHealthService {
             "ha_rag_metrics",
             "ha_rag_feedback",
             "ha_tool_definitions",
-            "ha_tool_audit_records",
+            "ha_tool_activity_records",
             "ha_tool_idempotency_records",
             "ha_tool_pending_confirmations",
-            "ha_telemetry_events");
+            "ha_telemetry_events",
+            "ha_owner_scope_migration_activity");
 
-    private static final Map<String, List<String>> REQUIRED_COLUMNS = Map.of(
-            "ha_knowledge_sources",
-            List.of("agent_id", "source_type", "source_uri", "index_status", "indexed_at"),
-            "ha_knowledge_chunks",
-            List.of("source_type", "source_uri"),
-            "ha_personal_memories",
-            List.of(
-                    "tenant_id",
+    private static final Map<String, List<String>> REQUIRED_COLUMNS = Map.ofEntries(
+            Map.entry("ha_session_messages",
+                    List.of("owner_scope_id", "owner_id", "agent_id", "session_id")),
+            Map.entry("ha_security_activity",
+                    List.of("owner_scope_id", "owner_id", "resource_type", "resource_id")),
+            Map.entry("ha_budget_counters",
+                    List.of("owner_scope_id", "owner_id", "agent_id", "resource_id")),
+            Map.entry("ha_agent_state",
+                    List.of("owner_scope_id", "owner_id", "agent_id", "session_id", "scope")),
+            Map.entry("ha_snapshot_metadata",
+                    List.of("owner_scope_id", "owner_id", "agent_id", "session_id")),
+            Map.entry("ha_knowledge_sources",
+                    List.of(
+                            "owner_scope_id",
+                            "owner_id",
+                            "agent_id",
+                            "allowed_owners_json",
+                            "source_type",
+                            "source_uri",
+                            "index_status",
+                            "indexed_at")),
+            Map.entry("ha_knowledge_chunks",
+                    List.of("owner_scope_id", "owner_id", "agent_id", "source_type", "source_uri")),
+            Map.entry("ha_personal_memories",
+                    List.of(
+                    "owner_scope_id",
                     "owner_id",
                     "agent_id",
                     "session_id",
@@ -68,14 +87,22 @@ public class DurablePersistenceHealthService {
                     "title",
                     "content",
                     "status",
-                    "source_id"),
-            "ha_tool_definitions",
-            List.of("workload_type", "output_schema_json"),
-            "ha_tool_pending_confirmations",
-            List.of(
+                    "source_id")),
+            Map.entry("ha_rag_metrics",
+                    List.of("owner_scope_id", "owner_id", "created_at")),
+            Map.entry("ha_rag_feedback",
+                    List.of("owner_scope_id", "owner_id", "created_at")),
+            Map.entry("ha_tool_definitions",
+                    List.of("owner_scope_id", "owner_id", "workload_type", "output_schema_json")),
+            Map.entry("ha_tool_activity_records",
+                    List.of("owner_scope_id", "owner_id", "agent_id", "session_id", "tool_id")),
+            Map.entry("ha_tool_idempotency_records",
+                    List.of("owner_scope_id", "owner_id", "agent_id", "session_id", "tool_id")),
+            Map.entry("ha_tool_pending_confirmations",
+                    List.of(
                     "confirmation_id",
-                    "tenant_id",
-                    "user_id",
+                    "owner_scope_id",
+                    "owner_id",
                     "agent_id",
                     "session_id",
                     "tool_id",
@@ -83,14 +110,16 @@ public class DurablePersistenceHealthService {
                     "parameters_json",
                     "sanitized_input_json",
                     "operation_summary_json",
-                    "parameter_fingerprint"));
+                    "parameter_fingerprint")),
+            Map.entry("ha_telemetry_events",
+                    List.of("owner_scope_id", "owner_id", "agent_id", "occurred_at")));
 
     private final ProductionRuntimeProperties properties;
     private final DataSource dataSource;
     private final SessionStore sessionStore;
     private final KnowledgeStore knowledgeStore;
     private final ToolStore toolStore;
-    private final SecurityAuditStore securityAuditStore;
+    private final SecurityActivityStore securityActivityStore;
     private final RuntimeTelemetry runtimeTelemetry;
     private final BudgetCounterStore budgetCounterStore;
     private final AgentStateStore agentStateStore;
@@ -103,7 +132,7 @@ public class DurablePersistenceHealthService {
             ObjectProvider<SessionStore> sessionStore,
             ObjectProvider<KnowledgeStore> knowledgeStore,
             ObjectProvider<ToolStore> toolStore,
-            ObjectProvider<SecurityAuditStore> securityAuditStore,
+            ObjectProvider<SecurityActivityStore> securityActivityStore,
             ObjectProvider<RuntimeTelemetry> runtimeTelemetry,
             ObjectProvider<BudgetCounterStore> budgetCounterStore,
             ObjectProvider<AgentStateStore> agentStateStore,
@@ -114,7 +143,7 @@ public class DurablePersistenceHealthService {
                 sessionStore.getIfAvailable(),
                 knowledgeStore.getIfAvailable(),
                 toolStore.getIfAvailable(),
-                securityAuditStore.getIfAvailable(),
+                securityActivityStore.getIfAvailable(),
                 runtimeTelemetry.getIfAvailable(),
                 budgetCounterStore.getIfAvailable(),
                 agentStateStore.getIfAvailable(),
@@ -127,7 +156,7 @@ public class DurablePersistenceHealthService {
             SessionStore sessionStore,
             KnowledgeStore knowledgeStore,
             ToolStore toolStore,
-            SecurityAuditStore securityAuditStore,
+            SecurityActivityStore securityActivityStore,
             RuntimeTelemetry runtimeTelemetry,
             BudgetCounterStore budgetCounterStore,
             AgentStateStore agentStateStore,
@@ -137,7 +166,7 @@ public class DurablePersistenceHealthService {
         this.sessionStore = sessionStore;
         this.knowledgeStore = knowledgeStore;
         this.toolStore = toolStore;
-        this.securityAuditStore = securityAuditStore;
+        this.securityActivityStore = securityActivityStore;
         this.runtimeTelemetry = runtimeTelemetry;
         this.budgetCounterStore = budgetCounterStore;
         this.agentStateStore = agentStateStore;
@@ -157,7 +186,7 @@ public class DurablePersistenceHealthService {
         requireStoreCapability("session", properties.getDurableStores().getSession(), sessionStore, failures);
         requireStoreCapability("knowledge", properties.getDurableStores().getKnowledge(), knowledgeStore, failures);
         requireStoreCapability("tool", properties.getDurableStores().getTool(), toolStore, failures);
-        requireStoreCapability("audit", properties.getDurableStores().getAudit(), securityAuditStore, failures);
+        requireStoreCapability("activity", properties.getDurableStores().getActivity(), securityActivityStore, failures);
         requireBudgetStore(failures);
         if (properties.getTelemetry().isDurableStoreEnabled()) {
             requireStoreCapability("telemetry", properties.getTelemetry().getDurableStoreType(), runtimeTelemetry, failures);

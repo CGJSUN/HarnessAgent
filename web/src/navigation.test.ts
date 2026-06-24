@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { getNavigationItems } from "./navigation";
 
 describe("personal workbench navigation", () => {
-  it("exposes every personal workbench section for an employee identity", () => {
-    const items = getNavigationItems(["employee"]);
+  it("exposes every personal workbench section", () => {
+    const items = getNavigationItems();
 
     expect(items.map(item => item.id)).toEqual([
       "chat",
@@ -17,8 +17,8 @@ describe("personal workbench navigation", () => {
     expect(items.every(item => item.enabled)).toBe(true);
   });
 
-  it("keeps the workbench labels personal instead of enterprise console labels", () => {
-    const labels = getNavigationItems(["employee"]).map(item => item.label);
+  it("keeps the workbench labels personal", () => {
+    const labels = getNavigationItems().map(item => item.label);
 
     expect(labels).toEqual([
       "Chat",
@@ -29,7 +29,5 @@ describe("personal workbench navigation", () => {
       "Agent",
       "Trace"
     ]);
-    expect(labels).not.toContain("Admin");
-    expect(labels).not.toContain("Release");
   });
 });

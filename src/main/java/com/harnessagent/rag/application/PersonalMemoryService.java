@@ -35,7 +35,7 @@ public class PersonalMemoryService {
         Instant now = Instant.now();
         PersonalMemoryRecord memory = new PersonalMemoryRecord(
                 UUID.randomUUID().toString(),
-                command.tenantId().trim(),
+                command.ownerScopeId().trim(),
                 command.ownerId().trim(),
                 command.agentId().trim(),
                 command.sessionId().trim(),
@@ -61,14 +61,12 @@ public class PersonalMemoryService {
         }
         KnowledgeSource source = knowledgeService.ingestDocument(new KnowledgeDocumentInput(
                 new KnowledgeSourceRegistration(
-                        memory.tenantId(),
+                        memory.ownerScopeId(),
                         memory.ownerId(),
                         memory.agentId(),
                         memory.title(),
                         memory.layer().name().toLowerCase(),
                         KnowledgeVisibility.RESTRICTED,
-                        Set.of(),
-                        Set.of(),
                         Set.of(),
                         "memory",
                         KnowledgeSourceType.MEMORY,
@@ -94,37 +92,37 @@ public class PersonalMemoryService {
     }
 
     @Transactional
-    public PersonalMemoryRecord confirmWrite(String memoryId, String tenantId, String ownerId, String agentId) {
-        PersonalMemoryRecord memory = requireOwnership(find(memoryId), tenantId, ownerId, agentId);
+    public PersonalMemoryRecord confirmWrite(String memoryId, String ownerScopeId, String ownerId, String agentId) {
+        PersonalMemoryRecord memory = requireOwnership(find(memoryId), ownerScopeId, ownerId, agentId);
         return confirmWrite(memory.id());
     }
 
     @Transactional
-    public PersonalMemoryRecord rejectWrite(String memoryId, String tenantId, String ownerId, String agentId) {
-        PersonalMemoryRecord memory = requireOwnership(find(memoryId), tenantId, ownerId, agentId);
+    public PersonalMemoryRecord rejectWrite(String memoryId, String ownerScopeId, String ownerId, String agentId) {
+        PersonalMemoryRecord memory = requireOwnership(find(memoryId), ownerScopeId, ownerId, agentId);
         return rejectWrite(memory.id());
     }
 
     @Transactional
-    public PersonalMemoryRecord deleteMemory(String memoryId, String tenantId, String ownerId, String agentId) {
-        PersonalMemoryRecord memory = requireOwnership(find(memoryId), tenantId, ownerId, agentId);
+    public PersonalMemoryRecord deleteMemory(String memoryId, String ownerScopeId, String ownerId, String agentId) {
+        PersonalMemoryRecord memory = requireOwnership(find(memoryId), ownerScopeId, ownerId, agentId);
         return deleteMemory(memory.id());
     }
 
-    public List<PersonalMemoryRecord> listMemories(String tenantId, String ownerId, String agentId) {
-        require(tenantId, "tenantId");
+    public List<PersonalMemoryRecord> listMemories(String ownerScopeId, String ownerId, String agentId) {
+        require(ownerScopeId, "ownerScopeId");
         require(ownerId, "ownerId");
         require(agentId, "agentId");
-        return store.listMemories(tenantId.trim(), ownerId.trim(), agentId.trim()).stream()
+        return store.listMemories(ownerScopeId.trim(), ownerId.trim(), agentId.trim()).stream()
                 .filter(memory -> memory.status() != MemoryWriteStatus.DELETED)
                 .toList();
     }
 
-    public PersonalDataExport exportPersonalData(String tenantId, String ownerId, String agentId) {
-        require(tenantId, "tenantId");
+    public PersonalDataExport exportPersonalData(String ownerScopeId, String ownerId, String agentId) {
+        require(ownerScopeId, "ownerScopeId");
         require(ownerId, "ownerId");
         require(agentId, "agentId");
-        String normalizedTenantId = tenantId.trim();
+        String normalizedTenantId = ownerScopeId.trim();
         String normalizedOwnerId = ownerId.trim();
         String normalizedAgentId = agentId.trim();
         List<PersonalMemoryRecord> memories = listMemories(normalizedTenantId, normalizedOwnerId, normalizedAgentId);
@@ -174,13 +172,13 @@ public class PersonalMemoryService {
 
     private static PersonalMemoryRecord requireOwnership(
             PersonalMemoryRecord memory,
-            String tenantId,
+            String ownerScopeId,
             String ownerId,
             String agentId) {
-        require(tenantId, "tenantId");
+        require(ownerScopeId, "ownerScopeId");
         require(ownerId, "ownerId");
         require(agentId, "agentId");
-        if (!memory.tenantId().equals(tenantId.trim())
+        if (!memory.ownerScopeId().equals(ownerScopeId.trim())
                 || !memory.ownerId().equals(ownerId.trim())
                 || !memory.agentId().equals(agentId.trim())) {
             throw new IllegalStateException("Memory record is not owned by the authenticated context");
@@ -192,7 +190,7 @@ public class PersonalMemoryService {
         if (command == null) {
             throw new IllegalArgumentException("memory write command is required");
         }
-        require(command.tenantId(), "tenantId");
+        require(command.ownerScopeId(), "ownerScopeId");
         require(command.ownerId(), "ownerId");
         require(command.agentId(), "agentId");
         require(command.sessionId(), "sessionId");

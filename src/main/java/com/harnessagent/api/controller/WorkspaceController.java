@@ -8,7 +8,7 @@ import com.harnessagent.api.response.WorkspaceFilePreviewResponse;
 import com.harnessagent.api.response.WorkspaceFileResponse;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.runtime.RuntimeContextScope;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.workspace.application.PersonalWorkspaceFileService;
 import com.harnessagent.workspace.application.PersonalWorkspaceService;
 import com.harnessagent.workspace.application.PlanModeService;
@@ -63,11 +63,10 @@ public class WorkspaceController {
     @GetMapping("/files")
     public List<WorkspaceFileResponse> listFiles(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam(required = false) String sessionId) {
-        RuntimeContextScope context = context(headers, tenantId, userId, agentId, sessionId);
+        RuntimeContextScope context = context(headers, ownerId, agentId, sessionId);
         PersonalWorkspaceLayout layout = workspaceService.initialize(context);
         try (var paths = Files.walk(layout.root())) {
             return paths
@@ -84,12 +83,11 @@ public class WorkspaceController {
     @GetMapping("/files/preview")
     public WorkspaceFilePreviewResponse previewFile(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam(required = false) String sessionId,
             @RequestParam("path") String path) {
-        RuntimeContextScope context = context(headers, tenantId, userId, agentId, sessionId);
+        RuntimeContextScope context = context(headers, ownerId, agentId, sessionId);
         PersonalWorkspaceFile file = fileService.locate(context, path, contentType(context, path));
         byte[] content = fileService.download(context, path);
         boolean truncated = content.length > PREVIEW_LIMIT_BYTES;
@@ -104,13 +102,10 @@ public class WorkspaceController {
     public WorkspaceFileResponse uploadFile(
             @RequestHeader Map<String, String> headers,
             @RequestBody WorkspaceFileUploadRequest request) {
-        SecurityPrincipal principal = identityResolver.resolveTrusted(headers, null, null);
+        OwnerPrincipal principal = new OwnerPrincipal(identityResolver.resolveTrustedOwner(headers, null));
         String agentId = identityResolver.resolveTrustedAgentId(headers, request.agentId());
-        RuntimeContextScope context = runtimeContextFactory.create(
-                principal.tenantId(),
-                principal.userId(),
-                agentId,
-                sessionOrDefault(request.sessionId()));
+        RuntimeContextScope context = runtimeContextFactory.createPersonal(
+                principal.ownerId(), agentId, sessionOrDefault(request.sessionId()));
         return WorkspaceFileResponse.from(fileService.upload(
                 context,
                 request.relativePath(),
@@ -121,12 +116,11 @@ public class WorkspaceController {
     @GetMapping("/files/download")
     public ResponseEntity<byte[]> downloadFile(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam(required = false) String sessionId,
             @RequestParam("path") String path) {
-        RuntimeContextScope context = context(headers, tenantId, userId, agentId, sessionId);
+        RuntimeContextScope context = context(headers, ownerId, agentId, sessionId);
         PersonalWorkspaceFile file = fileService.locate(context, path, contentType(context, path));
         byte[] content = fileService.download(context, path);
         return ResponseEntity.ok()
@@ -140,23 +134,21 @@ public class WorkspaceController {
     @DeleteMapping("/files")
     public Map<String, Boolean> deleteFile(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam(required = false) String sessionId,
             @RequestParam("path") String path) {
-        RuntimeContextScope context = context(headers, tenantId, userId, agentId, sessionId);
+        RuntimeContextScope context = context(headers, ownerId, agentId, sessionId);
         return Map.of("deleted", fileService.delete(context, path));
     }
 
     @GetMapping("/plans")
     public List<PersonalPlanResponse> listPlans(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam(required = false) String sessionId) {
-        return planModeService.listPlans(context(headers, tenantId, userId, agentId, sessionId)).stream()
+        return planModeService.listPlans(context(headers, ownerId, agentId, sessionId)).stream()
                 .map(PersonalPlanResponse::from)
                 .toList();
     }
@@ -164,30 +156,25 @@ public class WorkspaceController {
     @PostMapping("/plans")
     public PersonalPlanResponse createPlan(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam(required = false) String sessionId,
             @RequestBody PersonalPlanRequest request) {
         return PersonalPlanResponse.from(planModeService.createPlan(
-                context(headers, tenantId, userId, agentId, sessionId),
+                context(headers, ownerId, agentId, sessionId),
                 request.goal(),
                 request.steps()));
     }
 
     private RuntimeContextScope context(
             Map<String, String> headers,
-            String tenantId,
-            String userId,
+            String ownerId,
             String agentId,
             String sessionId) {
-        SecurityPrincipal principal = identityResolver.resolveTrusted(headers, tenantId, userId);
+        OwnerPrincipal principal = new OwnerPrincipal(identityResolver.resolveTrustedOwner(headers, ownerId));
         String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
-        return runtimeContextFactory.create(
-                principal.tenantId(),
-                principal.userId(),
-                trustedAgentId,
-                sessionOrDefault(sessionId));
+        return runtimeContextFactory.createPersonal(
+                principal.ownerId(), trustedAgentId, sessionOrDefault(sessionId));
     }
 
     private PersonalWorkspaceFile describe(

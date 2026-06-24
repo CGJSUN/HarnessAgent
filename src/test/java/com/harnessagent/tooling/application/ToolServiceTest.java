@@ -23,8 +23,8 @@ import com.harnessagent.production.telemetry.RuntimeTelemetry;
 import com.harnessagent.security.application.PromptInjectionGuard;
 import com.harnessagent.workspace.application.PlanModeService;
 import com.harnessagent.tooling.application.ToolService;
-import com.harnessagent.tooling.audit.ToolAuditRecord;
-import com.harnessagent.tooling.domain.ToolAuditPolicy;
+import com.harnessagent.tooling.activity.ToolActivityRecord;
+import com.harnessagent.tooling.domain.ToolActivityPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolExecutionStatus;
 import com.harnessagent.tooling.domain.ToolOutputSchema;
@@ -53,14 +53,14 @@ class ToolServiceTest {
         assertThat(tool.ownerSystem()).isEqualTo("CRM");
         assertThat(tool.riskLevel()).isEqualTo(ToolRiskLevel.READ_ONLY);
         assertThat(tool.parameterSchema().requiredParameters()).containsExactly("customerId");
-        assertThat(tool.permissionPolicy().allowedUserIds()).containsExactly("user-a");
-        assertThat(tool.auditPolicy().enabled()).isTrue();
+        assertThat(tool.permissionPolicy().allowedOwnerIds()).containsExactly("user-a");
+        assertThat(tool.activityPolicy().enabled()).isTrue();
     }
 
     @Test
     void registersToolWithOutputSchemaMetadata() {
         ToolDefinition tool = service.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "report.generate",
                 "Generate a structured report.",
                 "Reports",
@@ -73,7 +73,7 @@ class ToolServiceTest {
                 schema(Set.of("reportId"), Set.of(), Map.of(), Set.of()),
                 ToolOutputSchema.structured("application/json", Map.of("type", "object", "format", "tool-result")),
                 permissionPolicy(),
-                ToolAuditPolicy.standard()));
+                ToolActivityPolicy.standard()));
 
         assertThat(tool.sourceType()).isEqualTo(ToolSourceType.PROTOCOL);
         assertThat(tool.outputSchema().outputType()).isEqualTo("application/json");
@@ -81,7 +81,7 @@ class ToolServiceTest {
     }
 
     @Test
-    void executesReadOnlyToolAndStoresSanitizedAudit() {
+    void executesReadOnlyToolAndStoresSanitizedActivity() {
         ToolDefinition tool = service.registerTool(readOnlyRegistration());
 
         ToolExecutionResult result = service.execute(command(
@@ -92,12 +92,12 @@ class ToolServiceTest {
 
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
         assertThat(executor.invocations).isEqualTo(1);
-        ToolAuditRecord audit = service.listAudit("tenant-a").get(0);
-        assertThat(audit.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
-        assertThat(audit.sanitizedInput()).containsEntry("token", "[REDACTED]");
-        assertThat(audit.sanitizedOutput()).containsEntry("email", "[REDACTED]");
+        ToolActivityRecord activity = service.listActivity("owner-scope-a").get(0);
+        assertThat(activity.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
+        assertThat(activity.sanitizedInput()).containsEntry("token", "[REDACTED]");
+        assertThat(activity.sanitizedOutput()).containsEntry("email", "[REDACTED]");
         @SuppressWarnings("unchecked")
-        Map<String, Object> sanitizedRequest = (Map<String, Object>) audit.sanitizedOutput().get("request");
+        Map<String, Object> sanitizedRequest = (Map<String, Object>) activity.sanitizedOutput().get("request");
         assertThat(sanitizedRequest).containsEntry("token", "[REDACTED]");
     }
 
@@ -150,21 +150,21 @@ class ToolServiceTest {
         assertThat(result.approvalRequired()).isTrue();
         assertThat(executor.invocations).isZero();
         assertThat(result.operationSummary()).containsKey("confirmationId");
-        assertThat(service.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a"))
+        assertThat(service.listPendingConfirmations("owner-scope-a", "user-a", "agent-a", "session-a"))
                 .singleElement()
                 .satisfies(confirmation -> {
                     assertThat(confirmation.confirmationId()).isEqualTo(result.operationSummary().get("confirmationId"));
                     assertThat(confirmation.toolId()).isEqualTo(tool.id());
                     assertThat(confirmation.operationSummary()).containsEntry("toolName", "ticket.update");
                 });
-        assertThat(service.listAudit("tenant-a").get(0).status())
+        assertThat(service.listActivity("owner-scope-a").get(0).status())
                 .isEqualTo(ToolExecutionStatus.PENDING_CONFIRMATION);
     }
 
     @Test
     void rejectsWorkspacePathEscapingPersonalWorkspaceBeforeExecution() {
         ToolDefinition tool = service.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "workspace.read",
                 "Read a file from the personal workspace.",
                 "Workspace",
@@ -181,7 +181,7 @@ class ToolServiceTest {
                         Set.of(),
                         Set.of("workspacePath")),
                 permissionPolicy(),
-                ToolAuditPolicy.standard()));
+                ToolActivityPolicy.standard()));
 
         ToolExecutionResult result = service.execute(command(
                 tool,
@@ -197,7 +197,7 @@ class ToolServiceTest {
     @Test
     void deniesExecutionWhenPermissionDoesNotMatch() {
         ToolDefinition tool = service.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "crm.customer.lookup",
                 "Query customer by id.",
                 "CRM",
@@ -208,8 +208,8 @@ class ToolServiceTest {
                 false,
                 true,
                 schema(Set.of("customerId"), Set.of(), Map.of(), Set.of()),
-                new ToolPermissionPolicy(Set.of("tenant-a"), Set.of("other-user"), Set.of("agent-a"), Set.of(), Set.of()),
-                ToolAuditPolicy.standard()));
+                new ToolPermissionPolicy(Set.of("other-user"), Set.of("agent-a"), Set.of()),
+                ToolActivityPolicy.standard()));
 
         ToolExecutionResult result = service.execute(command(
                 tool,
@@ -219,7 +219,7 @@ class ToolServiceTest {
 
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.DENIED);
         assertThat(executor.invocations).isZero();
-        assertThat(service.listAudit("tenant-a").get(0).failureReason()).contains("not allowed");
+        assertThat(service.listActivity("owner-scope-a").get(0).failureReason()).contains("not allowed");
     }
 
     @Test
@@ -253,7 +253,7 @@ class ToolServiceTest {
     }
 
     @Test
-    void reviewerApprovalAllowsHighRiskToolAndIsAudited() {
+    void personalConfirmationAllowsHighRiskToolAndIsActivityed() {
         ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
         service.execute(command(
                 tool,
@@ -262,7 +262,7 @@ class ToolServiceTest {
                 "idem-1"));
 
         ToolExecutionResult result = service.execute(new ToolExecutionCommand(
-                "tenant-a",
+                "owner-scope-a",
                 "user-a",
                 "agent-a",
                 "session-a",
@@ -270,15 +270,15 @@ class ToolServiceTest {
                 Map.of("ticketId", "T-1", "status", "approved"),
                 Set.of(),
                 Set.of(),
-                false,
-                "approval-1",
-                "reviewer-a",
+                true,
+                null,
+                null,
                 "idem-1"));
 
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
-        ToolAuditRecord audit = service.listAudit("tenant-a").get(1);
-        assertThat(audit.approvalId()).isEqualTo("approval-1");
-        assertThat(audit.reviewerId()).isEqualTo("reviewer-a");
+        ToolActivityRecord activity = service.listActivity("owner-scope-a").get(1);
+        assertThat(activity.approvalId()).isEmpty();
+        assertThat(activity.reviewerId()).isEmpty();
     }
 
     @Test
@@ -300,7 +300,7 @@ class ToolServiceTest {
         assertThat(result.operationSummary()).containsEntry("modifiedParameters", true);
         assertThat(result.operationSummary().get("confirmationId"))
                 .isNotEqualTo(firstPending.operationSummary().get("confirmationId"));
-        assertThat(service.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a")).hasSize(1);
+        assertThat(service.listPendingConfirmations("owner-scope-a", "user-a", "agent-a", "session-a")).hasSize(1);
         assertThat(executor.invocations).isZero();
     }
 
@@ -318,7 +318,7 @@ class ToolServiceTest {
                 confirmationId,
                 com.harnessagent.tooling.domain.ToolConfirmationAction.CONFIRM,
                 new ToolExecutionCommand(
-                        "tenant-a",
+                        "owner-scope-a",
                         "user-a",
                         "agent-a",
                         "session-a",
@@ -327,14 +327,14 @@ class ToolServiceTest {
                         Set.of(),
                         Set.of(),
                         true,
-                        "approval-1",
-                        "reviewer-a",
+                        null,
+                        null,
                         "evil-idem"));
         ToolExecutionResult replay = service.resumeConfirmation(
                 confirmationId,
                 com.harnessagent.tooling.domain.ToolConfirmationAction.CONFIRM,
                 new ToolExecutionCommand(
-                        "tenant-a",
+                        "owner-scope-a",
                         "user-a",
                         "agent-a",
                         "session-a",
@@ -343,15 +343,17 @@ class ToolServiceTest {
                         Set.of(),
                         Set.of(),
                         true,
-                        "approval-2",
-                        "reviewer-b",
+                        null,
+                        null,
                         "evil-idem-2"));
 
         assertThat(first.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
         assertThat(replay.status()).isEqualTo(ToolExecutionStatus.DENIED);
         assertThat(replay.message()).contains("not active");
         assertThat(executor.invocations).isEqualTo(1);
-        assertThat(service.listAudit("tenant-a").get(1).idempotencyKey()).isEqualTo("idem-1");
+        assertThat(service.listActivity("owner-scope-a").get(1).idempotencyKey()).isEqualTo("idem-1");
+        assertThat(service.listActivity("owner-scope-a").get(1).approvalId()).isEmpty();
+        assertThat(service.listActivity("owner-scope-a").get(1).reviewerId()).isEmpty();
     }
 
     @Test
@@ -368,7 +370,7 @@ class ToolServiceTest {
                 confirmationId,
                 com.harnessagent.tooling.domain.ToolConfirmationAction.REJECT,
                 new ToolExecutionCommand(
-                        "tenant-a",
+                        "owner-scope-a",
                         "user-a",
                         "agent-a",
                         "session-a",
@@ -377,13 +379,13 @@ class ToolServiceTest {
                         Set.of(),
                         Set.of(),
                         false,
-                        "approval-1",
-                        "reviewer-a",
+                        null,
+                        null,
                         "ignored-idem"));
 
         assertThat(rejected.status()).isEqualTo(ToolExecutionStatus.DENIED);
         assertThat(rejected.message()).contains("rejected by user");
-        assertThat(service.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a")).isEmpty();
+        assertThat(service.listPendingConfirmations("owner-scope-a", "user-a", "agent-a", "session-a")).isEmpty();
         assertThat(executor.invocations).isZero();
     }
 
@@ -411,7 +413,7 @@ class ToolServiceTest {
     }
 
     @Test
-    void rejectsPendingHighRiskToolWithoutCallingExecutorAndAuditsDecision() {
+    void rejectsPendingHighRiskToolWithoutCallingExecutorAndActivitysDecision() {
         ToolDefinition tool = service.registerTool(mutatingRegistration(ToolRiskLevel.HIGH_RISK));
 
         ToolExecutionResult result = service.reject(command(
@@ -423,9 +425,9 @@ class ToolServiceTest {
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.DENIED);
         assertThat(result.message()).contains("rejected by user");
         assertThat(executor.invocations).isZero();
-        ToolAuditRecord audit = service.listAudit("tenant-a").get(0);
-        assertThat(audit.status()).isEqualTo(ToolExecutionStatus.DENIED);
-        assertThat(audit.idempotencyKey()).isEqualTo("idem-1");
+        ToolActivityRecord activity = service.listActivity("owner-scope-a").get(0);
+        assertThat(activity.status()).isEqualTo(ToolExecutionStatus.DENIED);
+        assertThat(activity.idempotencyKey()).isEqualTo("idem-1");
     }
 
     @Test
@@ -461,7 +463,7 @@ class ToolServiceTest {
     @Test
     void appliesSameGovernanceToMcpBackedTools() {
         ToolDefinition tool = service.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "mcp.finance.lookup",
                 "Lookup finance data through an approved MCP server.",
                 "Finance MCP",
@@ -473,7 +475,7 @@ class ToolServiceTest {
                 true,
                 schema(Set.of("accountId"), Set.of(), Map.of(), Set.of()),
                 permissionPolicy(),
-                ToolAuditPolicy.standard()));
+                ToolActivityPolicy.standard()));
 
         ToolExecutionResult result = service.execute(command(
                 tool,
@@ -482,15 +484,15 @@ class ToolServiceTest {
                 null));
 
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
-        ToolAuditRecord audit = service.listAudit("tenant-a").get(0);
-        assertThat(audit.sourceType()).isEqualTo(ToolSourceType.MCP);
-        assertThat(audit.toolName()).isEqualTo("mcp.finance.lookup");
+        ToolActivityRecord activity = service.listActivity("owner-scope-a").get(0);
+        assertThat(activity.sourceType()).isEqualTo(ToolSourceType.MCP);
+        assertThat(activity.toolName()).isEqualTo("mcp.finance.lookup");
     }
 
     @Test
     void appliesSameGovernanceToProtocolBackedTools() {
         ToolDefinition tool = service.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "protocol.calendar.lookup",
                 "Lookup calendar data through an approved protocol adapter.",
                 "Calendar Protocol",
@@ -502,7 +504,7 @@ class ToolServiceTest {
                 true,
                 schema(Set.of("calendarId"), Set.of(), Map.of(), Set.of()),
                 permissionPolicy(),
-                ToolAuditPolicy.standard()));
+                ToolActivityPolicy.standard()));
 
         ToolExecutionResult result = service.execute(command(
                 tool,
@@ -511,7 +513,7 @@ class ToolServiceTest {
                 null));
 
         assertThat(result.status()).isEqualTo(ToolExecutionStatus.SUCCEEDED);
-        assertThat(service.listAudit("tenant-a").get(0).sourceType()).isEqualTo(ToolSourceType.PROTOCOL);
+        assertThat(service.listActivity("owner-scope-a").get(0).sourceType()).isEqualTo(ToolSourceType.PROTOCOL);
     }
 
     @Test
@@ -579,9 +581,9 @@ class ToolServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> sandbox = (Map<String, Object>) result.output().get("sandbox");
         assertThat(sandbox).containsEntry("mode", SandboxExecutionMode.LOCAL_PROCESS.name());
-        ToolAuditRecord audit = sandboxedService.listAudit("tenant-a").get(1);
+        ToolActivityRecord activity = sandboxedService.listActivity("owner-scope-a").get(1);
         @SuppressWarnings("unchecked")
-        Map<String, Object> stdoutSummary = (Map<String, Object>) audit.sanitizedOutput().get("stdout");
+        Map<String, Object> stdoutSummary = (Map<String, Object>) activity.sanitizedOutput().get("stdout");
         assertThat(stdoutSummary).containsEntry("size", "sandbox-ok".length());
         assertThat(stdoutSummary).containsKey("sha256");
     }
@@ -608,7 +610,7 @@ class ToolServiceTest {
         RecordingSandboxExecutor sandboxExecutor = new RecordingSandboxExecutor();
         ToolService sandboxedService = sandboxedToolService(sandboxExecutor);
         ToolDefinition tool = sandboxedService.registerTool(new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "custom.runner",
                 "Custom internal runner.",
                 "Runner",
@@ -620,7 +622,7 @@ class ToolServiceTest {
                 true,
                 schema(Set.of("command"), Set.of(), Map.of(), Set.of()),
                 permissionPolicy(),
-                ToolAuditPolicy.standard()));
+                ToolActivityPolicy.standard()));
 
         ToolExecutionResult pending = sandboxedService.execute(command(
                 tool,
@@ -641,7 +643,7 @@ class ToolServiceTest {
 
     private static ToolRegistration readOnlyRegistration() {
         return new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "crm.customer.lookup",
                 "Query customer by id.",
                 "CRM",
@@ -653,12 +655,12 @@ class ToolServiceTest {
                 true,
                 schema(Set.of("customerId"), Set.of("token"), Map.of(), Set.of("token")),
                 permissionPolicy(),
-                ToolAuditPolicy.enabled(Set.of("token"), Set.of("email")));
+                ToolActivityPolicy.enabled(Set.of("token"), Set.of("email")));
     }
 
     private static ToolRegistration mutatingRegistration(ToolRiskLevel requestedRisk) {
         return new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "ticket.update",
                 "Update a ticket in the service desk.",
                 "ServiceDesk",
@@ -674,12 +676,12 @@ class ToolServiceTest {
                         Map.of("status", Set.of("approved", "rejected")),
                         Set.of()),
                 permissionPolicy(),
-                ToolAuditPolicy.standard());
+                ToolActivityPolicy.standard());
     }
 
     private static ToolRegistration shellRegistration() {
         return new ToolRegistration(
-                "tenant-a",
+                "owner-scope-a",
                 "shell.run",
                 "Run an approved shell command in the personal workspace sandbox.",
                 "Local Shell",
@@ -691,7 +693,7 @@ class ToolServiceTest {
                 true,
                 schema(Set.of("command"), Set.of("arguments", "environment"), Map.of(), Set.of()),
                 permissionPolicy(),
-                ToolAuditPolicy.standard(),
+                ToolActivityPolicy.standard(),
                 AgentWorkloadType.SHELL);
     }
 
@@ -718,10 +720,8 @@ class ToolServiceTest {
 
     private static ToolPermissionPolicy permissionPolicy() {
         return new ToolPermissionPolicy(
-                Set.of("tenant-a"),
                 Set.of("user-a"),
                 Set.of("agent-a"),
-                Set.of(),
                 Set.of());
     }
 
@@ -731,7 +731,7 @@ class ToolServiceTest {
             boolean confirmed,
             String idempotencyKey) {
         return new ToolExecutionCommand(
-                "tenant-a",
+                "owner-scope-a",
                 "user-a",
                 "agent-a",
                 "session-a",

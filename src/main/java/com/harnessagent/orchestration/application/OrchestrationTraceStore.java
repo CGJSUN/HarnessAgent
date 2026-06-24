@@ -15,9 +15,9 @@ public class OrchestrationTraceStore {
         return trace;
     }
 
-    public List<OrchestrationTrace> list(String tenantId) {
+    public List<OrchestrationTrace> list(String ownerScopeId) {
         return traces.stream()
-                .filter(trace -> trace.tenantId().equals(tenantId))
+                .filter(trace -> trace.ownerScopeId().equals(ownerScopeId))
                 .toList();
     }
 }

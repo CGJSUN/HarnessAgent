@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.harnessagent.rag.persistence.JdbcKnowledgeStore;
-import com.harnessagent.security.persistence.JdbcSecurityAuditStore;
+import com.harnessagent.security.persistence.JdbcSecurityActivityStore;
 import com.harnessagent.security.application.SensitiveDataRedactor;
 import com.harnessagent.session.persistence.JdbcSessionStore;
 import com.harnessagent.tooling.persistence.JdbcToolStore;
@@ -27,7 +27,7 @@ import com.harnessagent.production.snapshot.SnapshotMetadata;
 import com.harnessagent.production.snapshot.SnapshotStoreType;
 import com.harnessagent.production.state.StateStorePlan;
 import com.harnessagent.production.state.StateStoreType;
-import com.harnessagent.production.state.TenantStateKeyStrategy;
+import com.harnessagent.production.state.OwnerStateKeyStrategy;
 
 class DurablePersistenceHealthServiceTest {
 
@@ -45,10 +45,10 @@ class DurablePersistenceHealthServiceTest {
                     new JdbcSessionStore(named),
                     new JdbcKnowledgeStore(jdbc, objectMapper),
                     new JdbcToolStore(jdbc, objectMapper),
-                    new JdbcSecurityAuditStore(named, objectMapper),
+                    new JdbcSecurityActivityStore(named, objectMapper),
                     new JdbcRuntimeTelemetry(jdbc, objectMapper, new SensitiveDataRedactor(), properties),
                     new JdbcBudgetCounterStore(named),
-                    new JdbcAgentStateStore(named, new TenantStateKeyStrategy(), StateStorePlan.mysql("jdbc:h2:mem")),
+                    new JdbcAgentStateStore(named, new OwnerStateKeyStrategy(), StateStorePlan.mysql("jdbc:h2:mem")),
                     new JdbcSnapshotStore(named));
 
             DurablePersistenceHealth health = service.check();
@@ -98,10 +98,10 @@ class DurablePersistenceHealthServiceTest {
                     new JdbcSessionStore(named),
                     new JdbcKnowledgeStore(jdbc, objectMapper),
                     new JdbcToolStore(jdbc, objectMapper),
-                    new JdbcSecurityAuditStore(named, objectMapper),
+                    new JdbcSecurityActivityStore(named, objectMapper),
                     new JdbcRuntimeTelemetry(jdbc, objectMapper, new SensitiveDataRedactor(), properties),
                     new JdbcBudgetCounterStore(named),
-                    new JdbcAgentStateStore(named, new TenantStateKeyStrategy(), StateStorePlan.mysql("jdbc:h2:mem")),
+                    new JdbcAgentStateStore(named, new OwnerStateKeyStrategy(), StateStorePlan.mysql("jdbc:h2:mem")),
                     new FailingJdbcSnapshotStore(named));
 
             DurablePersistenceHealth health = service.check();
@@ -124,6 +124,8 @@ class DurablePersistenceHealthServiceTest {
                 .addScript("classpath:db/migration/V5__tool_workload_type.sql")
                 .addScript("classpath:db/migration/V7__personal_memory_rag_metadata.sql")
                 .addScript("classpath:db/migration/V9__personal_tooling_hitl.sql")
+                .addScript("classpath:db/migration/V11__owner_scope_persistence.sql")
+                .addScript("classpath:db/migration/V13__personal_authorization_policy.sql")
                 .build();
     }
 
@@ -139,7 +141,7 @@ class DurablePersistenceHealthServiceTest {
         properties.getDurableStores().setSession(StateStoreType.MYSQL);
         properties.getDurableStores().setKnowledge(StateStoreType.MYSQL);
         properties.getDurableStores().setTool(StateStoreType.MYSQL);
-        properties.getDurableStores().setAudit(StateStoreType.MYSQL);
+        properties.getDurableStores().setActivity(StateStoreType.MYSQL);
         properties.getDurableStores().setTelemetry(StateStoreType.MYSQL);
         properties.getDurableStores().setBudgetCounter(StateStoreType.MYSQL);
         properties.getTelemetry().setDurableStoreEnabled(true);

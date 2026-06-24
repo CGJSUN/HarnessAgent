@@ -14,25 +14,25 @@ public interface KnowledgeStore {
 
     Optional<KnowledgeSource> findSource(String sourceId);
 
-    List<KnowledgeSource> listSources(String tenantId);
+    List<KnowledgeSource> listSources(String ownerScopeId);
 
     void saveChunks(String sourceId, List<KnowledgeChunk> chunks);
 
-    List<KnowledgeChunk> listChunks(String tenantId);
+    List<KnowledgeChunk> listChunks(String ownerScopeId);
 
     void removeChunks(String sourceId);
 
     void recordMetric(RagMetric metric);
 
-    List<RagMetric> listMetrics(String tenantId);
+    List<RagMetric> listMetrics(String ownerScopeId);
 
     void recordFeedback(RagFeedback feedback);
 
-    List<RagFeedback> listFeedback(String tenantId);
+    List<RagFeedback> listFeedback(String ownerScopeId);
 
     PersonalMemoryRecord saveMemory(PersonalMemoryRecord memory);
 
     Optional<PersonalMemoryRecord> findMemory(String memoryId);
 
-    List<PersonalMemoryRecord> listMemories(String tenantId, String ownerId, String agentId);
+    List<PersonalMemoryRecord> listMemories(String ownerScopeId, String ownerId, String agentId);
 }

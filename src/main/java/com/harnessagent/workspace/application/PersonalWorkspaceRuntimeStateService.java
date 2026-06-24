@@ -43,7 +43,7 @@ public class PersonalWorkspaceRuntimeStateService {
             String planPath) {
         PersonalWorkspaceRuntimeState current = load(context)
                 .orElseGet(() -> PersonalWorkspaceRuntimeState.empty(
-                        context.userId(),
+                        context.ownerId(),
                         context.agentId(),
                         context.sessionId()));
         PersonalWorkspaceRuntimeState next = current.withSnapshot(

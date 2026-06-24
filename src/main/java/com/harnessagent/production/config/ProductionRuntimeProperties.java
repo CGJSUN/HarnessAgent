@@ -215,7 +215,7 @@ public class ProductionRuntimeProperties {
         private StateStoreType session = StateStoreType.LOCAL_JSON;
         private StateStoreType knowledge = StateStoreType.LOCAL_JSON;
         private StateStoreType tool = StateStoreType.LOCAL_JSON;
-        private StateStoreType audit = StateStoreType.LOCAL_JSON;
+        private StateStoreType activity = StateStoreType.LOCAL_JSON;
         private StateStoreType telemetry = StateStoreType.LOCAL_JSON;
         private StateStoreType budgetCounter = StateStoreType.LOCAL_JSON;
 
@@ -243,12 +243,12 @@ public class ProductionRuntimeProperties {
             this.tool = tool == null ? StateStoreType.LOCAL_JSON : tool;
         }
 
-        public StateStoreType getAudit() {
-            return audit;
+        public StateStoreType getActivity() {
+            return activity;
         }
 
-        public void setAudit(StateStoreType audit) {
-            this.audit = audit == null ? StateStoreType.LOCAL_JSON : audit;
+        public void setActivity(StateStoreType activity) {
+            this.activity = activity == null ? StateStoreType.LOCAL_JSON : activity;
         }
 
         public StateStoreType getTelemetry() {
@@ -510,16 +510,16 @@ public class ProductionRuntimeProperties {
     }
 
     public static class Retention {
-        private Duration audit = Duration.ofDays(180);
+        private Duration activity = Duration.ofDays(180);
         private Duration telemetry = Duration.ofDays(30);
         private Duration snapshots = Duration.ofDays(14);
 
-        public Duration getAudit() {
-            return audit;
+        public Duration getActivity() {
+            return activity;
         }
 
-        public void setAudit(Duration audit) {
-            this.audit = audit;
+        public void setActivity(Duration activity) {
+            this.activity = activity;
         }
 
         public Duration getTelemetry() {

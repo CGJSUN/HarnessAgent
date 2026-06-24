@@ -3,7 +3,7 @@ package com.harnessagent.rag.domain;
 import java.util.List;
 
 public record PersonalDataExport(
-        String tenantId,
+        String ownerScopeId,
         String ownerId,
         String agentId,
         List<PersonalMemoryRecord> memories,

@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import com.harnessagent.production.snapshot.Snapshot;
 import com.harnessagent.production.snapshot.SnapshotMetadata;
 import com.harnessagent.production.snapshot.SnapshotStore;
+import com.harnessagent.security.application.SafeLogFields;
 
 @Service
 public class WorkspaceSnapshotService {
@@ -53,7 +54,7 @@ public class WorkspaceSnapshotService {
         }
         SnapshotMetadata metadata = new SnapshotMetadata(
                 null,
-                context.tenantId(),
+                context.ownerScopeId(),
                 context.agentId(),
                 context.sessionId(),
                 taskId,
@@ -61,8 +62,8 @@ public class WorkspaceSnapshotService {
                 workspacePlan.snapshotStore().type(),
                 workspacePlan.snapshotStore().uri());
         SnapshotMetadata saved = store.save(metadata, zipWorkspace(workspace));
-        log.info("workspace snapshot saved tenantId={} agentId={} sessionHash={} backendType={}",
-                context.tenantId(), context.agentId(), com.harnessagent.security.application.SafeLogFields.session(context.sessionId()),
+        log.info("workspace snapshot saved ownerHash={} agentId={} sessionHash={} backendType={}",
+                SafeLogFields.owner(context.ownerId()), context.agentId(), SafeLogFields.session(context.sessionId()),
                 saved.backendType());
         return Optional.of(saved);
     }
@@ -153,14 +154,14 @@ public class WorkspaceSnapshotService {
     }
 
     private static void authorize(RuntimeContextScope context, SnapshotMetadata metadata) {
-        // Restores are scoped to tenant, Agent, and session; a valid snapshot id alone is not sufficient authority.
-        if (!metadata.tenantId().equals(context.tenantId())
+        // Restores are scoped to owner, Agent, and session; a valid snapshot id alone is not sufficient authority.
+        if (!metadata.ownerScopeId().equals(context.ownerScopeId())
                 || !metadata.agentId().equals(context.agentId())
                 || !metadata.sessionId().equals(context.sessionId())) {
-            log.warn("workspace snapshot restore rejected tenantId={} agentId={} sessionHash={} reason={}",
-                    context.tenantId(), context.agentId(), com.harnessagent.security.application.SafeLogFields.session(context.sessionId()),
+            log.warn("workspace snapshot restore rejected ownerHash={} agentId={} sessionHash={} reason={}",
+                    SafeLogFields.owner(context.ownerId()), context.agentId(), SafeLogFields.session(context.sessionId()),
                     "context_mismatch");
-            throw new SecurityException("Snapshot does not belong to the requested tenant, Agent, and session.");
+            throw new SecurityException("Snapshot does not belong to the requested owner, Agent, and session.");
         }
     }
 

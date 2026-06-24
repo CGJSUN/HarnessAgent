@@ -24,7 +24,7 @@ import type {
   PersonalMemoryRecord,
   PersonalPlanView,
   PersonalSkill,
-  ToolAuditRecord,
+  ToolActivityRecord,
   ToolDefinition,
   WorkspaceFilePreview,
   WorkspaceFileView
@@ -129,7 +129,7 @@ export function TasksWorkspace({ api }: { api: ApiClient }) {
           Create plan
         </button>
       </form>
-      <div className="admin-layout">
+      <div className="detail-layout">
         <div className="list-panel">
           {plans.length === 0 ? <EmptyState title="No plans" detail="Create or request a plan to persist it under the personal workspace." /> : null}
           {plans.map(plan => (
@@ -327,7 +327,7 @@ export function FilesWorkspace({
           <textarea rows={4} value={content} onChange={event => setContent(event.target.value)} />
         </label>
       </form>
-      <div className="admin-layout">
+      <div className="detail-layout">
         <div className="list-panel">
           {files.length === 0 ? <EmptyState title="No files" /> : null}
           {files.map(file => (
@@ -784,7 +784,7 @@ export function AgentConfigWorkspace({ api }: { api: ApiClient }) {
       {accessDenied ? <AccessDenied message={accessDenied} /> : null}
       {error ? <ErrorState message={error} /> : null}
       {loading ? <LoadingState /> : null}
-      <div className="admin-layout">
+      <div className="detail-layout">
         <div className="list-panel">
           {agents.map(agent => (
             <button
@@ -848,7 +848,7 @@ export function TraceWorkspace({ api }: { api: ApiClient }) {
   const [traces, setTraces] = useState<OrchestrationTrace[]>([]);
   const [metrics, setMetrics] = useState<OperationalMetricSummary | null>(null);
   const [cost, setCost] = useState<CostUsageReport | null>(null);
-  const [toolAudit, setToolAudit] = useState<ToolAuditRecord[]>([]);
+  const [toolDiagnostics, setToolDiagnostics] = useState<ToolActivityRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
@@ -861,7 +861,7 @@ export function TraceWorkspace({ api }: { api: ApiClient }) {
       api.orchestrationTraces(),
       api.metrics(),
       api.cost(DEFAULT_AGENT_ID),
-      api.listToolAudit()
+      api.listToolActivity()
     ]);
     if (results[0].status === "fulfilled") {
       setTraces(results[0].value);
@@ -873,7 +873,7 @@ export function TraceWorkspace({ api }: { api: ApiClient }) {
       setCost(results[2].value);
     }
     if (results[3].status === "fulfilled") {
-      setToolAudit(results[3].value);
+      setToolDiagnostics(results[3].value);
     }
     const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     if (rejected) {
@@ -901,7 +901,7 @@ export function TraceWorkspace({ api }: { api: ApiClient }) {
       {loading ? <LoadingState /> : null}
       <div className="metric-grid">
         <Metric label="Model events" value={metrics?.modelOrAgentEvents ?? 0} />
-        <Metric label="Tool calls" value={metrics?.toolCalls ?? toolAudit.length} />
+        <Metric label="Tool calls" value={metrics?.toolCalls ?? toolDiagnostics.length} />
         <Metric label="RAG hits" value={metrics?.ragHits ?? 0} />
         <Metric label="RAG misses" value={metrics?.ragMisses ?? 0} />
         <Metric label="Failures" value={metrics?.failures ?? 0} />
@@ -926,8 +926,8 @@ export function TraceWorkspace({ api }: { api: ApiClient }) {
         </section>
         <section className="stack">
           <h3>Tool and RAG diagnostics</h3>
-          {toolAudit.length === 0 ? <EmptyState title="No tool audit" /> : null}
-          {toolAudit.map(record => (
+          {toolDiagnostics.length === 0 ? <EmptyState title="No tool diagnostics" /> : null}
+          {toolDiagnostics.map(record => (
             <article className="list-item" key={record.id}>
               <strong>{record.toolName}</strong>
               <span>{record.sessionId} · {formatDateTime(record.occurredAt)}</span>

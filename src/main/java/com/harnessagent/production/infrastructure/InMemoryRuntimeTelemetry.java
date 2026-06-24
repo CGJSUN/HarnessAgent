@@ -37,8 +37,8 @@ public class InMemoryRuntimeTelemetry implements RuntimeTelemetry {
     @Override
     public TelemetryEvent record(
             TelemetryEventType type,
-            String tenantId,
-            String userId,
+            String ownerScopeId,
+            String ownerId,
             String agentId,
             String component,
             Duration duration,
@@ -47,8 +47,8 @@ public class InMemoryRuntimeTelemetry implements RuntimeTelemetry {
                 null,
                 Instant.now(),
                 type,
-                tenantId,
-                userId,
+                ownerScopeId,
+                ownerId,
                 agentId,
                 component,
                 duration == null ? 0 : duration.toMillis(),
@@ -60,12 +60,12 @@ public class InMemoryRuntimeTelemetry implements RuntimeTelemetry {
     }
 
     @Override
-    public List<TelemetryEvent> list(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("tenantId is required");
+    public List<TelemetryEvent> list(String ownerScopeId) {
+        if (ownerScopeId == null || ownerScopeId.isBlank()) {
+            throw new IllegalArgumentException("owner scope is required");
         }
         return events.stream()
-                .filter(event -> event.tenantId().equals(tenantId.trim()))
+                .filter(event -> event.ownerScopeId().equals(ownerScopeId.trim()))
                 .sorted(Comparator.comparing(TelemetryEvent::occurredAt))
                 .toList();
     }

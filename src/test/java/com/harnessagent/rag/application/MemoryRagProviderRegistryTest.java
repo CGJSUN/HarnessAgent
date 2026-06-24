@@ -8,7 +8,7 @@ import com.harnessagent.rag.domain.KnowledgeSourceType;
 import com.harnessagent.rag.domain.KnowledgeVisibility;
 import com.harnessagent.rag.domain.MemoryRagProviderDescriptor;
 import com.harnessagent.rag.domain.MemoryRagProviderType;
-import com.harnessagent.rag.domain.RetrievalPrincipal;
+import com.harnessagent.rag.domain.OwnerRetrievalPrincipal;
 import com.harnessagent.rag.persistence.InMemoryKnowledgeStore;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -35,15 +35,13 @@ class MemoryRagProviderRegistryTest {
                         "v1",
                         KnowledgeVisibility.RESTRICTED,
                         Set.of(),
-                        Set.of(),
-                        Set.of(),
                         "manual",
                         KnowledgeSourceType.LOCAL_FILE,
                         "workspace://knowledge/local.md"),
                 "本地知识库保留统一引用来源契约。"));
 
         assertThat(registry.provider("local").retrieve(
-                new RetrievalPrincipal("personal", "owner-a", Set.of(), Set.of()),
+                OwnerRetrievalPrincipal.forOwner("owner-a", ""),
                 "统一 引用 来源",
                 3).citations()).singleElement()
                 .satisfies(citation -> assertThat(citation.sourceUri()).isEqualTo("workspace://knowledge/local.md"));
@@ -58,7 +56,7 @@ class MemoryRagProviderRegistryTest {
                         MemoryRagProviderType.HAYSTACK,
                         MemoryRagProviderType.RAGFLOW);
         assertThatThrownBy(() -> registry.provider("mem0").retrieve(
-                new RetrievalPrincipal("personal", "owner-a", Set.of(), Set.of()),
+                OwnerRetrievalPrincipal.forOwner("owner-a", ""),
                 "anything",
                 3))
                 .isInstanceOf(IllegalStateException.class)

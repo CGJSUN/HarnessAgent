@@ -6,7 +6,7 @@ describe("parseApiError", () => {
   it("classifies structured conflict authorization failures as access denied", async () => {
     const response = new Response(
       JSON.stringify({
-        message: "admin, ops, or auditor role is required",
+        message: "owner policy denied access",
         timestamp: "2026-06-14T00:00:00Z"
       }),
       { status: 409, headers: { "Content-Type": "application/json" } }
@@ -15,7 +15,7 @@ describe("parseApiError", () => {
     const error = await parseApiError(response);
 
     expect(error.status).toBe(409);
-    expect(error.message).toContain("role is required");
+    expect(error.message).toContain("owner policy denied access");
     expect(error.accessDenied).toBe(true);
   });
 
@@ -113,23 +113,24 @@ describe("ApiClient", () => {
     expect(bodies[0]).toMatchObject({ action: "CONFIRM", agentId: "agent-a", sessionId: "session-1" });
     expect((bodies[0] as { idempotencyKey: string }).idempotencyKey).toBe("idem-1");
     expect((bodies[1] as { idempotencyKey: string }).idempotencyKey).toBe("idem-1");
-    expect((bodies[0] as { approvalId: string }).approvalId).toBe((bodies[1] as { approvalId: string }).approvalId);
+    expect(bodies[0]).not.toHaveProperty("approvalId");
+    expect(bodies[0]).not.toHaveProperty("reviewerId");
   });
 
-  it("serializes audit datetime-local filters as backend Instant strings", async () => {
+  it("serializes activity datetime-local filters as backend Instant strings", async () => {
     let requested = "";
     const client = new ApiClient({
       getIdentity: () => DEFAULT_IDENTITY,
       fetcher: async input => {
         requested = String(input);
-        return new Response(JSON.stringify({ toolAudit: [], securityAudit: [] }), {
+        return new Response(JSON.stringify({ toolActivity: [], securityActivity: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
       }
     });
 
-    await client.audit({ from: "2026-06-14T10:30", to: "2026-06-14T11:45" });
+    await client.recordActivity({ from: "2026-06-14T10:30", to: "2026-06-14T11:45" });
 
     const url = new URL(requested, "http://localhost");
     expect(url.searchParams.get("from")).toMatch(/2026-06-14T.*Z$/);

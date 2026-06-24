@@ -47,7 +47,7 @@
 - 如果开放，需要定义 active version、target version、审批人、审计记录和状态流转。
 - 回滚失败时是否需要保留旧版本可继续服务、或只允许 disable 可疑 Skill？
 
-参考：`web/README.md:55`、`web/src/views/AdminWorkspace.tsx:371`、`src/main/java/com/harnessagent/api/ConsoleController.java:120`、`src/main/java/com/harnessagent/security/SkillGovernanceService.java:52`、`src/main/java/com/harnessagent/api/ReleaseController.java:34`。
+参考：`web/README.md:55`、`web/src/views/AdminWorkspace.tsx:371`、`src/main/java/com/harnessagent/api/ConsoleController.java:120`、`src/main/java/com/harnessagent/security/SkillGovernanceService.java:52`、`src/main/java/com/harnessagent/api/ReadinessController.java:34`。
 
 ### 3. 工具注册和授权编辑是否放进控制台
 
@@ -142,7 +142,7 @@
 待决策：
 
 - 文档是否需要把“本地 MVP 可运行”和“生产 readiness 通过”明确拆开？
-- 发布验收是否必须要求使用 `application-production.yml` 和真实环境变量跑一轮 phase-gates？
+- 发布验收是否必须要求使用 `application-production.yml` 和真实环境变量跑一轮 readiness-checks？
 - 是否需要增加一份最小生产配置清单，避免误把默认 H2/local-json 当成生产持久化？
 
 参考：`src/main/resources/application.yml:36`、`src/main/resources/application-development.yml:3`、`src/main/resources/application-development.yml:10`、`src/main/resources/application-production.yml:3`、`src/main/resources/application-production.yml:46`。
@@ -152,4 +152,4 @@
 1. 把上述疑问点按“个人版是否需要”逐项定性：进入个人版核心、作为 provider/接口扩展、仅保留遗留兼容说明。
 2. 如果某项进入个人版核心，放入 `build-personal-agentscope-agent` 对应任务或后续 OpenSpec change，避免扩大早期企业 MVP 范围。
 3. 如果某项后置，更新 `docs/start.md`、`docs/release-readiness.md` 或 `web/README.md` 的措辞，明确它是边界而不是隐藏能力。
-4. 对个人版发布，至少验证 owner/Agent/session/workspace 隔离、AgentScope v2 覆盖矩阵、工作台主流程和生产 profile；旧 phase-gates 只能补充检查生产 wiring。
+4. 对个人版发布，至少验证 owner/Agent/session/workspace 隔离、AgentScope v2 覆盖矩阵、工作台主流程和生产 profile；旧 readiness-checks 只能补充检查生产 wiring。

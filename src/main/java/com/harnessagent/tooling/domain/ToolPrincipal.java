@@ -1,23 +1,26 @@
 package com.harnessagent.tooling.domain;
 
-import java.util.Set;
-import java.util.stream.Collectors;
+import com.harnessagent.runtime.PersonalRuntimeDefaults;
 
 public record ToolPrincipal(
-        String tenantId,
-        String userId,
+        String ownerScopeId,
+        String ownerId,
         String agentId,
-        String sessionId,
-        Set<String> departments,
-        Set<String> roles) {
+        String sessionId) {
 
     public ToolPrincipal {
-        tenantId = require(tenantId, "tenantId");
-        userId = require(userId, "userId");
+        ownerScopeId = require(ownerScopeId, "ownerScopeId");
+        ownerId = require(ownerId, "ownerId");
         agentId = require(agentId, "agentId");
         sessionId = require(sessionId, "sessionId");
-        departments = safeSet(departments);
-        roles = safeSet(roles);
+    }
+
+    public static ToolPrincipal forOwner(String ownerId, String agentId, String sessionId) {
+        return new ToolPrincipal(
+                PersonalRuntimeDefaults.PERSONAL_SCOPE_ID,
+                ownerId,
+                agentId,
+                sessionId);
     }
 
     private static String require(String value, String field) {
@@ -25,15 +28,5 @@ public record ToolPrincipal(
             throw new IllegalArgumentException(field + " is required");
         }
         return value.trim();
-    }
-
-    private static Set<String> safeSet(Set<String> input) {
-        if (input == null) {
-            return Set.of();
-        }
-        return input.stream()
-                .filter(value -> value != null && !value.isBlank())
-                .map(String::trim)
-                .collect(Collectors.toUnmodifiableSet());
     }
 }

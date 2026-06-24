@@ -50,7 +50,7 @@ public record ToolExecutionResult(
                 UUID.randomUUID().toString(),
                 toolId,
                 ToolExecutionStatus.PENDING_CONFIRMATION,
-                "High-risk tool requires user confirmation or reviewer approval.",
+                "High-risk tool requires personal confirmation.",
                 Map.of(),
                 true,
                 summary);

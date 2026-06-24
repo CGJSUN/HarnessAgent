@@ -4,9 +4,8 @@ import type {
   ApiError,
   ChatMessage,
   ChatResponse,
-  ConsoleAuditResult,
+  ConsoleActivityResult,
   CostUsageReport,
-  EndToEndAcceptanceReport,
   KnowledgeSource,
   KnowledgeSourceView,
   LocalIdentity,
@@ -16,9 +15,6 @@ import type {
   PersonalMemoryRecord,
   PersonalPlanView,
   PersonalSkill,
-  PhaseGate,
-  ReleaseScenario,
-  RollbackAction,
   SessionSummary,
   SkillValidationResult,
   SkillVersion,
@@ -27,7 +23,7 @@ import type {
   ToolDefinition,
   ToolExecutionResult,
   ToolPendingConfirmation,
-  ToolAuditRecord,
+  ToolActivityRecord,
   UserConsoleView,
   WorkspaceFilePreview,
   WorkspaceFileUpload,
@@ -66,10 +62,10 @@ export async function parseApiError(response: Response): Promise<ApiError> {
   const accessDenied =
     response.status === 401 ||
     response.status === 403 ||
-    normalized.includes("role is required") ||
+    normalized.includes("owner policy denied") ||
+    normalized.includes("owner scope") ||
     normalized.includes("authenticated identity") ||
-    normalized.includes("authenticated tenant") ||
-    normalized.includes("authenticated user") ||
+    normalized.includes("authenticated owner") ||
     normalized.includes("authenticated agent") ||
     normalized.includes("permission") ||
     normalized.includes("not authorized") ||
@@ -341,8 +337,7 @@ export class ApiClient {
     return this.post<PersonalMemoryRecord>(
       "/api/knowledge/memory",
       {
-        tenantId: identity.tenantId,
-        ownerId: identity.userId,
+        ownerId: identity.ownerId,
         agentId: input.agentId,
         sessionId: input.sessionId,
         layer: input.layer,
@@ -421,8 +416,6 @@ export class ApiClient {
       toolId: confirmation.toolId,
       parameters: confirmation.sanitizedInput,
       confirmed,
-      approvalId: confirmed ? stableToolActionId("confirm", confirmation) : "",
-      reviewerId: confirmed ? this.getIdentity().userId : "",
       idempotencyKey: stableIdempotencyKey(confirmation)
     }, agentHeader(agentId));
   }
@@ -438,8 +431,6 @@ export class ApiClient {
       toolId: confirmation.toolId,
       parameters: confirmation.sanitizedInput,
       confirmed: false,
-      approvalId: stableToolActionId("reject", confirmation),
-      reviewerId: this.getIdentity().userId,
       idempotencyKey: stableIdempotencyKey(confirmation)
     }, agentHeader(agentId));
   }
@@ -458,8 +449,6 @@ export class ApiClient {
         sessionId: confirmation.sessionId,
         action,
         ...(parameters ? { parameters } : {}),
-        approvalId: stableToolActionId(action.toLowerCase(), confirmation),
-        reviewerId: this.getIdentity().userId,
         idempotencyKey: stableIdempotencyKey(confirmation)
       },
       agentHeader(agentId)
@@ -473,9 +462,9 @@ export class ApiClient {
     return this.get<ToolPendingConfirmation[]>(`/api/tools/confirmations?${params}`, agentHeader(agentId));
   }
 
-  listToolAudit() {
+  listToolActivity() {
     const params = identitySearchParams(this.getIdentity());
-    return this.get<ToolAuditRecord[]>(`/api/tools/audit?${params}`);
+    return this.get<ToolActivityRecord[]>(`/api/tools/activity?${params}`);
   }
 
   listKnowledge() {
@@ -578,7 +567,7 @@ export class ApiClient {
     return this.get<CostUsageReport>(`/api/console/cost?${params}`);
   }
 
-  audit(filters: {
+  recordActivity(filters: {
     targetUserId?: string;
     sessionId?: string;
     resourceId?: string;
@@ -592,23 +581,7 @@ export class ApiClient {
         params.set(key, key === "from" || key === "to" ? toInstant(value) : value);
       }
     }
-    return this.get<ConsoleAuditResult>(`/api/console/audit?${params}`);
-  }
-
-  releaseScenario() {
-    return this.get<ReleaseScenario>("/api/release/scenario");
-  }
-
-  phaseGates() {
-    return this.get<PhaseGate[]>("/api/release/phase-gates");
-  }
-
-  rollbackActions() {
-    return this.get<RollbackAction[]>("/api/release/rollback");
-  }
-
-  acceptance() {
-    return this.get<EndToEndAcceptanceReport>("/api/release/acceptance");
+    return this.get<ConsoleActivityResult>(`/api/console/activity?${params}`);
   }
 
   orchestrationTraces() {

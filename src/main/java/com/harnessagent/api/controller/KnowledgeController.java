@@ -6,6 +6,7 @@ import com.harnessagent.api.request.KnowledgeRetrievalRequest;
 import com.harnessagent.api.request.KnowledgeSourceRequest;
 import com.harnessagent.api.request.MemoryWriteRequest;
 import com.harnessagent.api.request.RagFeedbackRequest;
+import com.harnessagent.runtime.PersonalRuntimeDefaults;
 import com.harnessagent.rag.application.KnowledgeDocumentInput;
 import com.harnessagent.rag.application.MemoryWriteCommand;
 import com.harnessagent.rag.retrieval.KnowledgeRetrievalResult;
@@ -17,8 +18,8 @@ import com.harnessagent.rag.domain.PersonalDataExport;
 import com.harnessagent.rag.domain.PersonalMemoryRecord;
 import com.harnessagent.rag.domain.RagFeedback;
 import com.harnessagent.rag.domain.RagMetric;
-import com.harnessagent.rag.domain.RetrievalPrincipal;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.rag.domain.OwnerRetrievalPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,8 +56,8 @@ public class KnowledgeController {
     }
 
     @GetMapping("/sources")
-    public List<KnowledgeSource> listSources(@RequestParam String tenantId) {
-        return knowledgeService.listSources(tenantId);
+    public List<KnowledgeSource> listSources(@RequestParam(required = false) String ownerId) {
+        return knowledgeService.listSources(PersonalRuntimeDefaults.PERSONAL_SCOPE_ID);
     }
 
     @PostMapping("/documents")
@@ -70,14 +71,10 @@ public class KnowledgeController {
     public KnowledgeRetrievalResult retrieve(
             @RequestHeader Map<String, String> headers,
             @RequestBody KnowledgeRetrievalRequest request) {
-        SecurityPrincipal identity = identityResolver.resolveTrusted(headers, request.tenantId(), request.userId());
+        OwnerPrincipal identity = new OwnerPrincipal(
+                identityResolver.resolveTrustedOwner(headers, request.ownerId()));
         String agentId = identityResolver.resolveTrustedAgentId(headers, request.agentId());
-        RetrievalPrincipal principal = new RetrievalPrincipal(
-                identity.tenantId(),
-                identity.userId(),
-                agentId,
-                identity.departments(),
-                identity.roles());
+        OwnerRetrievalPrincipal principal = OwnerRetrievalPrincipal.forOwner(identity.ownerId(), agentId);
         return knowledgeService.retrieve(principal, request.query(), request.limit());
     }
 
@@ -94,23 +91,22 @@ public class KnowledgeController {
     @GetMapping("/memory")
     public List<PersonalMemoryRecord> listMemories(
             @RequestHeader Map<String, String> headers,
-            @RequestParam(required = false) String tenantId,
-            @RequestParam(required = false) String ownerId,
+            @RequestParam String ownerId,
             @RequestParam String agentId) {
-        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        OwnerPrincipal identity = resolveOwner(headers, ownerId);
         String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
-        return personalMemoryService.listMemories(identity.tenantId(), identity.userId(), trustedAgentId);
+        return personalMemoryService.listMemories(identity.scopeId(), identity.ownerId(), trustedAgentId);
     }
 
     @PostMapping("/memory")
     public PersonalMemoryRecord requestMemoryWrite(
             @RequestHeader Map<String, String> headers,
             @RequestBody MemoryWriteRequest request) {
-        SecurityPrincipal identity = resolveOwner(headers, request.tenantId(), request.ownerId());
+        OwnerPrincipal identity = resolveOwner(headers, request.ownerId());
         String agentId = identityResolver.resolveTrustedAgentId(headers, request.agentId());
         return personalMemoryService.requestWrite(new MemoryWriteCommand(
-                identity.tenantId(),
-                identity.userId(),
+                identity.scopeId(),
+                identity.ownerId(),
                 agentId,
                 request.sessionId(),
                 request.layer(),
@@ -123,80 +119,74 @@ public class KnowledgeController {
     public PersonalMemoryRecord confirmMemoryWrite(
             @RequestHeader Map<String, String> headers,
             @PathVariable String memoryId,
-            @RequestParam(required = false) String tenantId,
-            @RequestParam(required = false) String ownerId,
+            @RequestParam String ownerId,
             @RequestParam String agentId) {
-        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        OwnerPrincipal identity = resolveOwner(headers, ownerId);
         String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
-        return personalMemoryService.confirmWrite(memoryId, identity.tenantId(), identity.userId(), trustedAgentId);
+        return personalMemoryService.confirmWrite(memoryId, identity.scopeId(), identity.ownerId(), trustedAgentId);
     }
 
     @PostMapping("/memory/{memoryId}/reject")
     public PersonalMemoryRecord rejectMemoryWrite(
             @RequestHeader Map<String, String> headers,
             @PathVariable String memoryId,
-            @RequestParam(required = false) String tenantId,
-            @RequestParam(required = false) String ownerId,
+            @RequestParam String ownerId,
             @RequestParam String agentId) {
-        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        OwnerPrincipal identity = resolveOwner(headers, ownerId);
         String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
-        return personalMemoryService.rejectWrite(memoryId, identity.tenantId(), identity.userId(), trustedAgentId);
+        return personalMemoryService.rejectWrite(memoryId, identity.scopeId(), identity.ownerId(), trustedAgentId);
     }
 
     @DeleteMapping("/memory/{memoryId}")
     public PersonalMemoryRecord deleteMemory(
             @RequestHeader Map<String, String> headers,
             @PathVariable String memoryId,
-            @RequestParam(required = false) String tenantId,
-            @RequestParam(required = false) String ownerId,
+            @RequestParam String ownerId,
             @RequestParam String agentId) {
-        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        OwnerPrincipal identity = resolveOwner(headers, ownerId);
         String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
-        return personalMemoryService.deleteMemory(memoryId, identity.tenantId(), identity.userId(), trustedAgentId);
+        return personalMemoryService.deleteMemory(memoryId, identity.scopeId(), identity.ownerId(), trustedAgentId);
     }
 
     @GetMapping("/export")
     public PersonalDataExport exportPersonalData(
             @RequestHeader Map<String, String> headers,
-            @RequestParam(required = false) String tenantId,
-            @RequestParam(required = false) String ownerId,
+            @RequestParam String ownerId,
             @RequestParam String agentId) {
-        SecurityPrincipal identity = resolveOwner(headers, tenantId, ownerId);
+        OwnerPrincipal identity = resolveOwner(headers, ownerId);
         String trustedAgentId = identityResolver.resolveTrustedAgentId(headers, agentId);
-        return personalMemoryService.exportPersonalData(identity.tenantId(), identity.userId(), trustedAgentId);
+        return personalMemoryService.exportPersonalData(identity.scopeId(), identity.ownerId(), trustedAgentId);
     }
 
     @GetMapping("/metrics")
-    public List<RagMetric> listMetrics(@RequestParam String tenantId) {
-        return knowledgeService.listMetrics(tenantId);
+    public List<RagMetric> listMetrics(@RequestParam(required = false) String ownerId) {
+        return knowledgeService.listMetrics(PersonalRuntimeDefaults.PERSONAL_SCOPE_ID);
     }
 
     @PostMapping("/feedback")
     public RagFeedback recordFeedback(@RequestBody RagFeedbackRequest request) {
         return knowledgeService.recordFeedback(
-                request.tenantId(),
-                request.userId(),
+                PersonalRuntimeDefaults.PERSONAL_SCOPE_ID,
+                request.ownerId(),
                 request.query(),
                 request.helpful(),
                 request.comment());
     }
 
     @GetMapping("/feedback")
-    public List<RagFeedback> listFeedback(@RequestParam String tenantId) {
-        return knowledgeService.listFeedback(tenantId);
+    public List<RagFeedback> listFeedback(@RequestParam(required = false) String ownerId) {
+        return knowledgeService.listFeedback(PersonalRuntimeDefaults.PERSONAL_SCOPE_ID);
     }
 
     private static KnowledgeSourceRegistration toRegistration(KnowledgeSourceRequest request) {
         return new KnowledgeSourceRegistration(
-                request.tenantId(),
+                PersonalRuntimeDefaults.PERSONAL_SCOPE_ID,
                 request.ownerId(),
                 request.agentId(),
                 request.title(),
                 request.version(),
                 request.visibility(),
-                safeSet(request.allowedDepartments()),
-                safeSet(request.allowedRoles()),
-                safeSet(request.allowedUsers()),
+                safeSet(request.allowedOwnerIds()),
                 request.updatePolicy(),
                 request.sourceType(),
                 request.sourceUri());
@@ -204,15 +194,13 @@ public class KnowledgeController {
 
     private static KnowledgeSourceRegistration toRegistration(KnowledgeDocumentRequest request) {
         return new KnowledgeSourceRegistration(
-                request.tenantId(),
+                PersonalRuntimeDefaults.PERSONAL_SCOPE_ID,
                 request.ownerId(),
                 request.agentId(),
                 request.title(),
                 request.version(),
                 request.visibility(),
-                safeSet(request.allowedDepartments()),
-                safeSet(request.allowedRoles()),
-                safeSet(request.allowedUsers()),
+                safeSet(request.allowedOwnerIds()),
                 request.updatePolicy(),
                 request.sourceType(),
                 request.sourceUri());
@@ -222,7 +210,7 @@ public class KnowledgeController {
         return input == null ? Set.of() : input;
     }
 
-    private SecurityPrincipal resolveOwner(Map<String, String> headers, String tenantId, String ownerId) {
-        return identityResolver.resolveTrusted(headers, tenantId, ownerId);
+    private OwnerPrincipal resolveOwner(Map<String, String> headers, String ownerId) {
+        return new OwnerPrincipal(identityResolver.resolveTrustedOwner(headers, ownerId));
     }
 }

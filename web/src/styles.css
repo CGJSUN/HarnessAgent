@@ -492,7 +492,7 @@ button:disabled {
 
 .list-item,
 .confirmation,
-.audit-row,
+.activity-row,
 .trace-row {
   border: 1px solid #d8dee6;
   border-radius: 8px;
@@ -506,8 +506,8 @@ button:disabled {
 .list-item span,
 .confirmation strong,
 .confirmation span,
-.audit-row strong,
-.audit-row span {
+.activity-row strong,
+.activity-row span {
   overflow-wrap: anywhere;
 }
 
@@ -516,7 +516,7 @@ button:disabled {
   gap: 2px;
 }
 
-.audit-row > div:first-child {
+.activity-row > div:first-child {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -524,7 +524,7 @@ button:disabled {
 }
 
 .list-item span,
-.audit-row span,
+.activity-row span,
 .item-card span {
   color: #637083;
   font-size: 0.84rem;
@@ -570,7 +570,7 @@ button:disabled {
   color: #ffffff;
 }
 
-.admin-layout {
+.detail-layout {
   display: grid;
   grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
   gap: 16px;
@@ -840,7 +840,7 @@ td span {
   }
 
   .workspace-grid-chat,
-  .admin-layout,
+  .detail-layout,
   .split-grid,
   .summary-band-text,
   .trace-details {

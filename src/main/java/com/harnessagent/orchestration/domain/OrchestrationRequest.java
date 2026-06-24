@@ -1,10 +1,10 @@
 package com.harnessagent.orchestration.domain;
 
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import java.util.Map;
 
 public record OrchestrationRequest(
-        SecurityPrincipal principal,
+        OwnerPrincipal principal,
         String supervisorAgentId,
         String taskIntent,
         String task,
@@ -19,7 +19,7 @@ public record OrchestrationRequest(
     }
 
     public OrchestrationRequest(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             String supervisorAgentId,
             String taskIntent,
             String task,

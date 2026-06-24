@@ -27,7 +27,7 @@ import com.harnessagent.production.infrastructure.RuntimeTimeoutGuard;
 import com.harnessagent.production.snapshot.SnapshotStoreType;
 import com.harnessagent.production.state.StateStorePlan;
 import com.harnessagent.production.state.StateStoreType;
-import com.harnessagent.production.state.TenantStateKeyStrategy;
+import com.harnessagent.production.state.OwnerStateKeyStrategy;
 import com.harnessagent.production.telemetry.TelemetryEvent;
 import com.harnessagent.production.telemetry.TelemetryEventType;
 import com.harnessagent.production.workspace.WorkspaceMode;
@@ -160,7 +160,7 @@ class ProductionRuntimeTest {
     }
 
     @Test
-    void acceptsRedisStateAndBuildsTenantScopedKey() {
+    void acceptsRedisStateAndBuildsOwnerScopedKey() {
         ProductionRuntimeProperties properties = properties();
         properties.setProfile(RuntimeProfile.PRODUCTION);
         properties.setReplicaCount(2);
@@ -170,18 +170,18 @@ class ProductionRuntimeTest {
         properties.getTelemetry().setOpenTelemetryExportEnabled(true);
 
         StateStorePlan plan = new ProductionRuntimeValidator(properties).stateStorePlan();
-        String key = new TenantStateKeyStrategy().key(new RuntimeContextScope(
-                "tenant-a",
+        String key = new OwnerStateKeyStrategy().key(new RuntimeContextScope(
+                "owner-scope-a",
                 "user-a",
                 "agent-a",
                 "session-a",
-                "tenant-a:user-a",
+                "owner-scope-a:user-a",
                 "agent-a:session-a"), "memory");
 
         assertThat(plan.distributed()).isTrue();
         assertThat(plan.productionDurable()).isTrue();
         assertThat(plan.location()).isEqualTo("redis://prod:6379/0");
-        assertThat(key).isEqualTo("tenant:tenant-a:user:user-a:agent:agent-a:session:session-a:scope:memory");
+        assertThat(key).isEqualTo("owner:user-a:agent:agent-a:session:session-a:scope:memory");
     }
 
     @Test
@@ -219,28 +219,28 @@ class ProductionRuntimeTest {
         for (TelemetryEventType type : TelemetryEventType.values()) {
             telemetry.record(
                     type,
-                    "tenant-a",
-                    "user-a",
+                    "personal",
+                    "owner-a",
                     "agent-a",
                     type.name().toLowerCase(),
                     Duration.ofMillis(7),
                     Map.of("status", "ok", "token", "secret-token"));
         }
 
-        assertThat(telemetry.list("tenant-a"))
+        assertThat(telemetry.list("personal"))
                 .extracting(TelemetryEvent::type)
                 .containsExactly(TelemetryEventType.values());
-        assertThat(telemetry.list("tenant-a").get(0).attributes())
+        assertThat(telemetry.list("personal").get(0).attributes())
                 .containsEntry("token", "[REDACTED]");
     }
 
     @Test
-    void enforcesBudgetByTenantUserAgentAndProviderScope() {
+    void enforcesBudgetByOwnerAgentAndProviderScope() {
         ProductionRuntimeProperties properties = properties();
         properties.getBudget().setRequestLimit(1);
         properties.getBudget().setTokenLimit(100);
         BudgetLimiter limiter = new BudgetLimiter(properties, new InMemoryBudgetCounterStore());
-        BudgetScope scope = new BudgetScope("tenant-a", "user-a", "agent-a", "dashscope");
+        BudgetScope scope = BudgetScope.forOwner("owner-a", "agent-a", "dashscope");
 
         BudgetDecision first = limiter.tryConsume(scope, 10);
         BudgetDecision second = limiter.tryConsume(scope, 10);
@@ -256,7 +256,7 @@ class ProductionRuntimeTest {
         properties.getBudget().setRequestLimit(1);
         properties.getBudget().setTokenLimit(100);
         BudgetCounterStore store = new InMemoryBudgetCounterStore();
-        BudgetScope scope = new BudgetScope("tenant-a", "user-a", "agent-a", "dashscope");
+        BudgetScope scope = BudgetScope.forOwner("owner-a", "agent-a", "dashscope");
 
         BudgetDecision first = new BudgetLimiter(properties, store).tryConsume(scope, 10);
         BudgetDecision second = new BudgetLimiter(properties, store).tryConsume(scope, 10);

@@ -7,28 +7,24 @@ import {
 } from "./identity";
 
 describe("identity serialization", () => {
-  it("serializes local development identity into trusted headers and request payload fields", () => {
+  it("serializes personal owner identity into trusted headers and request payload fields", () => {
     const identity = {
       ...DEFAULT_IDENTITY,
-      tenantId: "tenant-a",
-      userId: "admin-a",
-      roles: ["admin", "ops"],
-      departments: ["support"]
+      ownerId: "owner-a",
+      agentId: "personal-agent"
     };
 
-    expect(identitySearchParams(identity).toString()).toBe("tenantId=tenant-a&userId=admin-a");
+    expect(identitySearchParams(identity).toString()).toBe("ownerId=owner-a");
     expect(identityPayload(identity)).toEqual({
-      tenantId: "tenant-a",
-      userId: "admin-a",
-      roles: ["admin", "ops"],
-      departments: ["support"]
+      ownerId: "owner-a"
     });
     expect(identityHeaders(identity)).toMatchObject({
-      "X-Tenant-Id": "tenant-a",
-      "X-User-Id": "admin-a",
-      "X-Roles": "admin,ops",
-      "X-Departments": "support",
+      "X-Owner-Id": "owner-a",
       "X-Identity-Provider": "INTERNAL"
     });
+    expect(Object.keys(identityHeaders(identity)).sort()).toEqual([
+      "X-Identity-Provider",
+      "X-Owner-Id"
+    ]);
   });
 });

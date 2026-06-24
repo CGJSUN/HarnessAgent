@@ -1,7 +1,7 @@
 package com.harnessagent.console.view;
 
 public record CostUsageReport(
-        String tenantId,
+        String ownerScopeId,
         String agentId,
         String providerId,
         long tokenEvents,

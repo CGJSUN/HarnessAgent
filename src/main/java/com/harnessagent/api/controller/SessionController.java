@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 
 @RestController
 @RequestMapping("/api")
@@ -38,27 +38,21 @@ public class SessionController {
     @GetMapping("/sessions")
     public List<SessionSummary> listSessions(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId) {
-        com.harnessagent.security.domain.SecurityPrincipal principal =
-                identityResolver.resolve(headers, tenantId, userId, null, null);
-        RuntimeContextScope context = runtimeContextFactory.create(
-                principal.tenantId(), principal.userId(), agentId, "_");
-        return sessionStore.listSessions(context.tenantId(), context.userId(), context.agentId());
+        OwnerPrincipal principal = identityResolver.resolve(headers, ownerId);
+        RuntimeContextScope context = runtimeContextFactory.createPersonal(principal.ownerId(), agentId, "_");
+        return sessionStore.listSessions(context.ownerScopeId(), context.ownerId(), context.agentId());
     }
 
     @GetMapping("/messages")
     public List<ChatMessage> listMessages(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam String sessionId) {
-        com.harnessagent.security.domain.SecurityPrincipal principal =
-                identityResolver.resolve(headers, tenantId, userId, null, null);
-        RuntimeContextScope context = runtimeContextFactory.create(
-                principal.tenantId(), principal.userId(), agentId, sessionId);
+        OwnerPrincipal principal = identityResolver.resolve(headers, ownerId);
+        RuntimeContextScope context = runtimeContextFactory.createPersonal(principal.ownerId(), agentId, sessionId);
         return sessionStore.listMessages(context);
     }
 
@@ -66,13 +60,10 @@ public class SessionController {
     public DeleteSessionResponse deleteSession(
             @RequestHeader Map<String, String> headers,
             @PathVariable String sessionId,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId) {
-        com.harnessagent.security.domain.SecurityPrincipal principal =
-                identityResolver.resolve(headers, tenantId, userId, null, null);
-        RuntimeContextScope context = runtimeContextFactory.create(
-                principal.tenantId(), principal.userId(), agentId, sessionId);
+        OwnerPrincipal principal = identityResolver.resolve(headers, ownerId);
+        RuntimeContextScope context = runtimeContextFactory.createPersonal(principal.ownerId(), agentId, sessionId);
         return new DeleteSessionResponse(sessionStore.deleteSession(context));
     }
 }

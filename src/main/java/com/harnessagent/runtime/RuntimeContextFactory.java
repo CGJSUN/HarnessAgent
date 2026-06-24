@@ -5,18 +5,34 @@ import org.springframework.stereotype.Component;
 @Component
 public class RuntimeContextFactory {
 
+    public RuntimeContextScope createPersonal(String ownerId, String agentId, String sessionId) {
+        return create(new OwnerScope(
+                PersonalRuntimeDefaults.ownerId(ownerId),
+                normalize("agentId", agentId),
+                normalize("sessionId", sessionId)));
+    }
+
+    public RuntimeContextScope create(OwnerScope ownerScope) {
+        return RuntimeContextScope.fromOwnerScope(ownerScope);
+    }
+
     public RuntimeContextScope create(
-            String tenantId, String userId, String agentId, String sessionId) {
-        String normalizedTenantId = normalize("tenantId", PersonalRuntimeDefaults.tenantId(tenantId));
-        String normalizedUserId = normalize("userId", PersonalRuntimeDefaults.ownerId(tenantId, userId));
+            String ownerScopeId, String ownerId, String agentId, String sessionId) {
+        return createFromOwnerScope(ownerScopeId, ownerId, agentId, sessionId);
+    }
+
+    public RuntimeContextScope createFromOwnerScope(
+            String ownerScopeId, String ownerId, String agentId, String sessionId) {
+        String normalizedOwnerScopeId = normalize("ownerScopeId", PersonalRuntimeDefaults.ownerScopeId(ownerScopeId));
+        String normalizedOwnerId = normalize("ownerId", ownerId);
         String normalizedAgentId = normalize("agentId", agentId);
         String normalizedSessionId = normalize("sessionId", sessionId);
         return new RuntimeContextScope(
-                normalizedTenantId,
-                normalizedUserId,
+                normalizedOwnerScopeId,
+                normalizedOwnerId,
                 normalizedAgentId,
                 normalizedSessionId,
-                normalizedTenantId + ":" + normalizedUserId,
+                "owner:" + normalizedOwnerId,
                 normalizedAgentId + ":" + normalizedSessionId);
     }
 

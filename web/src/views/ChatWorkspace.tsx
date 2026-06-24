@@ -28,7 +28,7 @@ import { formatDateTime } from "../lib/format";
 const DEFAULT_AGENT_ID = "personal-assistant";
 
 function nextSessionId(identity: LocalIdentity) {
-  return `session-${identity.userId || "user"}-${Date.now()}`;
+  return `session-${identity.ownerId || "owner"}-${Date.now()}`;
 }
 
 function localMessage(

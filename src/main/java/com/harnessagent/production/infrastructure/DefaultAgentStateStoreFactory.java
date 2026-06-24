@@ -6,22 +6,22 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import com.harnessagent.production.state.AgentStateStore;
 import com.harnessagent.production.state.AgentStateStoreFactory;
+import com.harnessagent.production.state.OwnerStateKeyStrategy;
 import com.harnessagent.production.state.StateStorePlan;
-import com.harnessagent.production.state.TenantStateKeyStrategy;
 
 @Component
 public class DefaultAgentStateStoreFactory implements AgentStateStoreFactory {
 
-    private final TenantStateKeyStrategy keyStrategy;
+    private final OwnerStateKeyStrategy keyStrategy;
     private final Optional<JdbcAgentStateStore> mysqlStateStore;
     private final Optional<RedisAgentStateStore> redisStateStore;
 
-    public DefaultAgentStateStoreFactory(TenantStateKeyStrategy keyStrategy) {
+    public DefaultAgentStateStoreFactory(OwnerStateKeyStrategy keyStrategy) {
         this(keyStrategy, Optional.empty(), Optional.empty());
     }
 
     DefaultAgentStateStoreFactory(
-            TenantStateKeyStrategy keyStrategy,
+            OwnerStateKeyStrategy keyStrategy,
             Optional<JdbcAgentStateStore> mysqlStateStore,
             Optional<RedisAgentStateStore> redisStateStore) {
         this.keyStrategy = keyStrategy;
@@ -31,7 +31,7 @@ public class DefaultAgentStateStoreFactory implements AgentStateStoreFactory {
 
     @Autowired
     public DefaultAgentStateStoreFactory(
-            TenantStateKeyStrategy keyStrategy,
+            OwnerStateKeyStrategy keyStrategy,
             ObjectProvider<JdbcAgentStateStore> mysqlStateStore,
             ObjectProvider<RedisAgentStateStore> redisStateStore) {
         this(

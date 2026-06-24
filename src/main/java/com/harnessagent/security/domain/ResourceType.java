@@ -4,9 +4,9 @@ public enum ResourceType {
     AGENT,
     TOOL,
     KNOWLEDGE_SOURCE,
-    ADMIN_OPERATION,
-    OPS_DATA,
-    AUDIT,
+    OWNER_OPERATION,
+    DIAGNOSTIC_DATA,
+    ACTIVITY,
     MEMORY,
     FILE,
     SKILL

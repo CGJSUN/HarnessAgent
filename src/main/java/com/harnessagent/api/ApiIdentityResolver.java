@@ -1,57 +1,36 @@
 package com.harnessagent.api;
 
 import com.harnessagent.security.domain.IdentityProviderType;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerIdentity;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.runtime.PersonalRuntimeDefaults;
-import java.util.Arrays;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 @Component
 public class ApiIdentityResolver {
 
-    public SecurityPrincipal resolve(
-            Map<String, String> headers,
-            String requestTenantId,
-            String requestUserId,
-            Set<String> requestRoles,
-            Set<String> requestDepartments) {
-        String headerTenantId = header(headers, "X-Tenant-Id");
-        String headerUserId = header(headers, "X-User-Id");
-        if (headerTenantId == null && headerUserId == null) {
-            return new SecurityPrincipal(
-                    PersonalRuntimeDefaults.tenantId(requestTenantId),
-                    PersonalRuntimeDefaults.ownerId(requestTenantId, requestUserId),
-                    IdentityProviderType.INTERNAL,
-                    safeSet(requestRoles),
-                    safeSet(requestDepartments));
-        }
-        requireMatch("tenantId", requestTenantId, headerTenantId);
-        requireMatch("userId", requestUserId, headerUserId);
-        return new SecurityPrincipal(
-                headerTenantId,
-                headerUserId,
-                provider(header(headers, "X-Identity-Provider")),
-                csv(header(headers, "X-Roles")),
-                csv(header(headers, "X-Departments")));
+    public OwnerPrincipal resolve(Map<String, String> headers, String requestOwnerId) {
+        return new OwnerPrincipal(resolveOwner(headers, requestOwnerId));
     }
 
-    public SecurityPrincipal resolveTrusted(
-            Map<String, String> headers,
-            String requestTenantId,
-            String requestUserId) {
-        String headerTenantId = header(headers, "X-Tenant-Id");
-        String headerUserId = header(headers, "X-User-Id");
-        requireMatch("tenantId", requestTenantId, headerTenantId);
-        requireMatch("userId", requestUserId, headerUserId);
-        return new SecurityPrincipal(
-                headerTenantId.trim(),
-                headerUserId.trim(),
-                provider(header(headers, "X-Identity-Provider")),
-                csv(header(headers, "X-Roles")),
-                csv(header(headers, "X-Departments")));
+    public OwnerPrincipal resolveTrusted(Map<String, String> headers, String requestOwnerId) {
+        return new OwnerPrincipal(resolveTrustedOwner(headers, requestOwnerId));
+    }
+
+    public OwnerIdentity resolveOwner(Map<String, String> headers, String requestOwnerId) {
+        String headerOwnerId = header(headers, "X-Owner-Id");
+        if (headerOwnerId == null) {
+            return OwnerIdentity.local(PersonalRuntimeDefaults.ownerId(requestOwnerId));
+        }
+        requireMatch("ownerId", requestOwnerId, headerOwnerId);
+        return OwnerIdentity.trusted(headerOwnerId.trim(), provider(header(headers, "X-Identity-Provider")));
+    }
+
+    public OwnerIdentity resolveTrustedOwner(Map<String, String> headers, String requestOwnerId) {
+        String headerOwnerId = header(headers, "X-Owner-Id");
+        requireMatch("ownerId", requestOwnerId, headerOwnerId);
+        return OwnerIdentity.trusted(headerOwnerId.trim(), provider(header(headers, "X-Identity-Provider")));
     }
 
     public String resolveTrustedAgentId(Map<String, String> headers, String requestAgentId) {
@@ -88,17 +67,4 @@ public class ApiIdentityResolver {
                 .orElse(null);
     }
 
-    private static Set<String> csv(String value) {
-        if (value == null || value.isBlank()) {
-            return Set.of();
-        }
-        return Arrays.stream(value.split(","))
-                .filter(item -> item != null && !item.isBlank())
-                .map(String::trim)
-                .collect(Collectors.toUnmodifiableSet());
-    }
-
-    private static Set<String> safeSet(Set<String> input) {
-        return input == null ? Set.of() : input;
-    }
 }

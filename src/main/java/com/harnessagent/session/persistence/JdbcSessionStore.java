@@ -49,14 +49,16 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
     public void appendMessage(RuntimeContextScope context, ChatMessage message) {
         jdbc.update("""
                 insert into ha_session_messages (
-                    id, tenant_id, user_id, agent_id, session_id, role, content, content_blocks_json, created_at
+                    id, tenant_id, user_id, owner_scope_id, owner_id, agent_id, session_id,
+                    role, content, content_blocks_json, created_at
                 ) values (
-                    :id, :tenantId, :userId, :agentId, :sessionId, :role, :content, :contentBlocksJson, :createdAt
+                    :id, :ownerScopeId, :ownerId, :ownerScopeId, :ownerId, :agentId, :sessionId,
+                    :role, :content, :contentBlocksJson, :createdAt
                 )
                 """, new MapSqlParameterSource()
                 .addValue("id", message.id())
-                .addValue("tenantId", context.tenantId())
-                .addValue("userId", context.userId())
+                .addValue("ownerScopeId", context.ownerScopeId())
+                .addValue("ownerId", context.ownerId())
                 .addValue("agentId", context.agentId())
                 .addValue("sessionId", context.sessionId())
                 .addValue("role", message.role().name())
@@ -66,19 +68,19 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
     }
 
     @Override
-    public List<SessionSummary> listSessions(String tenantId, String userId, String agentId) {
+    public List<SessionSummary> listSessions(String ownerScopeId, String ownerId, String agentId) {
         return jdbc.query("""
-                select tenant_id, user_id, agent_id, session_id, count(*) as message_count, max(created_at) as last_message_at
+                select owner_scope_id, owner_id, agent_id, session_id, count(*) as message_count, max(created_at) as last_message_at
                 from ha_session_messages
-                where tenant_id = :tenantId
-                  and user_id = :userId
+                where owner_scope_id = :ownerScopeId
+                  and owner_id = :ownerId
                   and (:agentId is null or :agentId = '' or agent_id = :agentId)
-                group by tenant_id, user_id, agent_id, session_id
+                group by owner_scope_id, owner_id, agent_id, session_id
                 order by last_message_at desc, session_id asc
                 """,
                 Map.of(
-                        "tenantId", tenantId,
-                        "userId", userId,
+                        "ownerScopeId", ownerScopeId,
+                        "ownerId", ownerId,
                         "agentId", agentId == null ? "" : agentId),
                 summaryMapper());
     }
@@ -88,8 +90,8 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
         return jdbc.query("""
                 select id, role, content, content_blocks_json, created_at
                 from ha_session_messages
-                where tenant_id = :tenantId
-                  and user_id = :userId
+                where owner_scope_id = :ownerScopeId
+                  and owner_id = :ownerId
                   and agent_id = :agentId
                   and session_id = :sessionId
                 order by created_at asc, id asc
@@ -100,8 +102,8 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
     public boolean deleteSession(RuntimeContextScope context) {
         return jdbc.update("""
                 delete from ha_session_messages
-                where tenant_id = :tenantId
-                  and user_id = :userId
+                where owner_scope_id = :ownerScopeId
+                  and owner_id = :ownerId
                   and agent_id = :agentId
                   and session_id = :sessionId
                 """, contextParams(context)) > 0;
@@ -109,8 +111,8 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
 
     private static Map<String, ?> contextParams(RuntimeContextScope context) {
         return Map.of(
-                "tenantId", context.tenantId(),
-                "userId", context.userId(),
+                "ownerScopeId", context.ownerScopeId(),
+                "ownerId", context.ownerId(),
                 "agentId", context.agentId(),
                 "sessionId", context.sessionId());
     }
@@ -130,8 +132,8 @@ public class JdbcSessionStore implements SessionStore, DurableStoreCapability {
 
     private static RowMapper<SessionSummary> summaryMapper() {
         return (rs, rowNum) -> new SessionSummary(
-                rs.getString("tenant_id"),
-                rs.getString("user_id"),
+                rs.getString("owner_scope_id"),
+                rs.getString("owner_id"),
                 rs.getString("agent_id"),
                 rs.getString("session_id"),
                 rs.getInt("message_count"),

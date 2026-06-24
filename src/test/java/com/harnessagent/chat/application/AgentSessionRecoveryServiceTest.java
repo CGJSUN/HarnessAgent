@@ -8,7 +8,7 @@ import com.harnessagent.production.health.ProductionRuntimeValidator;
 import com.harnessagent.production.infrastructure.JdbcAgentStateStore;
 import com.harnessagent.production.infrastructure.LocalJsonAgentStateStore;
 import com.harnessagent.production.state.StateStorePlan;
-import com.harnessagent.production.state.TenantStateKeyStrategy;
+import com.harnessagent.production.state.OwnerStateKeyStrategy;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.session.domain.ChatMessage;
@@ -32,12 +32,12 @@ class AgentSessionRecoveryServiceTest {
     @Test
     void restoresMessagesAgentStateAndPendingExecutionAcrossJdbcInstances() {
         DataSource dataSource = database();
-        RuntimeContextScope context = contextFactory.create("personal", "owner-a", "agent-a", "session-a");
+        RuntimeContextScope context = contextFactory.createPersonal("owner-a", "agent-a", "session-a");
         NamedParameterJdbcTemplate firstJdbc = new NamedParameterJdbcTemplate(dataSource);
         JdbcSessionStore writerSessionStore = new JdbcSessionStore(firstJdbc);
         JdbcAgentStateStore writerStateStore = new JdbcAgentStateStore(
                 firstJdbc,
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.mysql("jdbc:h2:mem"));
         writerSessionStore.appendMessage(context, ChatMessage.user("hello"));
         writerSessionStore.appendMessage(context, ChatMessage.assistant("hi"));
@@ -51,7 +51,7 @@ class AgentSessionRecoveryServiceTest {
         NamedParameterJdbcTemplate secondJdbc = new NamedParameterJdbcTemplate(dataSource);
         JdbcAgentStateStore readerStateStore = new JdbcAgentStateStore(
                 secondJdbc,
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.mysql("jdbc:h2:mem"));
         AgentSessionRecoveryService reader = new AgentSessionRecoveryService(
                 new JdbcSessionStore(secondJdbc),
@@ -68,7 +68,7 @@ class AgentSessionRecoveryServiceTest {
                 .satisfies(pending -> {
                     assertThat(pending.mode()).isEqualTo("complete");
                     assertThat(pending.status()).isEqualTo("PENDING");
-                    assertThat(pending.runtimeUserId()).isEqualTo("personal:owner-a");
+                    assertThat(pending.runtimeUserId()).isEqualTo("owner:owner-a");
                     assertThat(pending.runtimeSessionId()).isEqualTo("agent-a:session-a");
                     assertThat(pending.startedAt()).isBeforeOrEqualTo(Instant.now());
                 });
@@ -81,11 +81,11 @@ class AgentSessionRecoveryServiceTest {
     @Test
     void pendingExecutionDoesNotCountAsAgentScopeState() {
         DataSource dataSource = database();
-        RuntimeContextScope context = contextFactory.create("personal", "owner-a", "agent-a", "session-pending");
+        RuntimeContextScope context = contextFactory.createPersonal("owner-a", "agent-a", "session-pending");
         NamedParameterJdbcTemplate jdbc = new NamedParameterJdbcTemplate(dataSource);
         JdbcAgentStateStore stateStore = new JdbcAgentStateStore(
                 jdbc,
-                new TenantStateKeyStrategy(),
+                new OwnerStateKeyStrategy(),
                 StateStorePlan.mysql("jdbc:h2:mem"));
         AgentSessionRecoveryService service = new AgentSessionRecoveryService(
                 new JdbcSessionStore(jdbc),
@@ -104,8 +104,8 @@ class AgentSessionRecoveryServiceTest {
     @Test
     void localJsonStateStoreRestoresAgentStateAcrossInstances() {
         StateStorePlan plan = StateStorePlan.local(tempDir.resolve("agent-state").toString());
-        TenantStateKeyStrategy keyStrategy = new TenantStateKeyStrategy();
-        RuntimeContextScope context = contextFactory.create("personal", "owner-a", "agent-a", "session-a");
+        OwnerStateKeyStrategy keyStrategy = new OwnerStateKeyStrategy();
+        RuntimeContextScope context = contextFactory.createPersonal("owner-a", "agent-a", "session-a");
 
         new LocalJsonAgentStateStore(keyStrategy, plan)
                 .save(context, agentScope(context, "agent_state"), "{\"remembered\":true}");
@@ -134,6 +134,10 @@ class AgentSessionRecoveryServiceTest {
                 .generateUniqueName(true)
                 .addScript("classpath:db/migration/V1__durable_persistence.sql")
                 .addScript("classpath:db/migration/V3__session_message_content_blocks.sql")
+                .addScript("classpath:db/migration/V5__tool_workload_type.sql")
+                .addScript("classpath:db/migration/V7__personal_memory_rag_metadata.sql")
+                .addScript("classpath:db/migration/V9__personal_tooling_hitl.sql")
+                .addScript("classpath:db/migration/V11__owner_scope_persistence.sql")
                 .build();
     }
 }

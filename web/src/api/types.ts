@@ -1,10 +1,6 @@
-export type Role = "employee" | "admin" | "ops" | "auditor" | "knowledge" | "tool" | string;
-
 export interface LocalIdentity {
-  tenantId: string;
-  userId: string;
-  roles: Role[];
-  departments: string[];
+  ownerId: string;
+  agentId: string;
   identityProvider: "INTERNAL" | "SSO" | "OIDC" | string;
 }
 
@@ -40,8 +36,8 @@ export interface ChatMessage {
 }
 
 export interface SessionSummary {
-  tenantId: string;
-  userId: string;
+  ownerScopeId?: string;
+  ownerId: string;
   agentId: string;
   sessionId: string;
   messageCount: number;
@@ -49,14 +45,11 @@ export interface SessionSummary {
 }
 
 export interface ChatRequest {
-  tenantId: string;
-  userId: string;
+  ownerId: string;
   agentId: string;
   sessionId: string;
   message: string;
   knowledgeEnabled: boolean;
-  departments: string[];
-  roles: string[];
   knowledgeLimit: number;
 }
 
@@ -162,7 +155,7 @@ export interface AgentManagementView {
 
 export interface ToolDefinition {
   id: string;
-  tenantId: string;
+  ownerScopeId?: string;
   name: string;
   description: string;
   ownerSystem: string;
@@ -175,7 +168,7 @@ export interface ToolDefinition {
   parameterSchema: ToolParameterSchema;
   outputSchema: ToolOutputSchema;
   permissionPolicy: ToolPermissionPolicy;
-  auditPolicy: ToolAuditPolicy;
+  activityPolicy: ToolActivityPolicy;
   workloadType: string;
   createdAt: string;
   updatedAt: string;
@@ -195,14 +188,12 @@ export interface ToolOutputSchema {
 }
 
 export interface ToolPermissionPolicy {
-  allowedTenantIds: string[];
-  allowedUserIds: string[];
+  allowedOwnerIds: string[];
   allowedAgentIds: string[];
-  allowedDepartments: string[];
-  allowedRoles: string[];
+  deniedOwnerIds: string[];
 }
 
-export interface ToolAuditPolicy {
+export interface ToolActivityPolicy {
   enabled: boolean;
   sensitiveParameters: string[];
   sensitiveResultFields: string[];
@@ -232,9 +223,7 @@ export interface KnowledgeSourceView {
   title: string;
   version: string;
   visibility: "PUBLIC" | "RESTRICTED" | string;
-  allowedDepartments: string[];
-  allowedRoles: string[];
-  allowedUsers: string[];
+  allowedOwnerIds: string[];
   status: "ACTIVE" | "REVOKED" | "DELETED" | string;
   sourceType?: "INLINE_TEXT" | "LOCAL_FILE" | "LOCAL_DIRECTORY" | "URL" | "MEMORY" | string;
   sourceUri?: string;
@@ -246,15 +235,13 @@ export interface KnowledgeSourceView {
 
 export interface KnowledgeSource {
   id: string;
-  tenantId: string;
+  ownerScopeId?: string;
   ownerId: string;
   agentId: string;
   title: string;
   version: string;
   visibility: "PUBLIC" | "RESTRICTED" | string;
-  allowedDepartments: string[];
-  allowedRoles: string[];
-  allowedUsers: string[];
+  allowedOwnerIds: string[];
   updatePolicy: string;
   sourceType: "INLINE_TEXT" | "LOCAL_FILE" | "LOCAL_DIRECTORY" | "URL" | "MEMORY" | string;
   sourceUri: string;
@@ -270,7 +257,6 @@ export type MemoryLayer = "SESSION_CONTEXT" | "AGENT_MEMORY_FILE" | "FACT_LEDGER
 export type MemoryWriteStatus = "PENDING_CONFIRMATION" | "CONFIRMED" | "REJECTED" | "DELETED" | string;
 
 export interface MemoryWriteRequest {
-  tenantId: string;
   ownerId: string;
   agentId: string;
   sessionId: string;
@@ -282,7 +268,7 @@ export interface MemoryWriteRequest {
 
 export interface PersonalMemoryRecord {
   id: string;
-  tenantId: string;
+  ownerScopeId?: string;
   ownerId: string;
   agentId: string;
   sessionId: string;
@@ -307,7 +293,7 @@ export interface KnowledgeIndexMetadata {
 }
 
 export interface PersonalDataExport {
-  tenantId: string;
+  ownerScopeId?: string;
   ownerId: string;
   agentId: string;
   memories: PersonalMemoryRecord[];
@@ -355,7 +341,7 @@ export interface PersonalPlanView {
 
 export interface SkillVersion {
   id: string;
-  tenantId: string;
+  ownerScopeId?: string;
   skillName: string;
   version: string;
   repository: string;
@@ -376,7 +362,7 @@ export interface SkillPermissionSet {
 
 export interface PersonalSkill {
   id: string;
-  tenantId: string;
+  ownerScopeId?: string;
   ownerId: string;
   name: string;
   description: string;
@@ -401,8 +387,8 @@ export interface SkillValidationResult {
 
 export interface ToolPendingConfirmation {
   confirmationId: string;
-  tenantId: string;
-  userId: string;
+  ownerScopeId?: string;
+  ownerId: string;
   agentId: string;
   sessionId: string;
   toolId: string;
@@ -433,7 +419,7 @@ export interface OperationalMetricSummary {
 }
 
 export interface CostUsageReport {
-  tenantId: string;
+  ownerScopeId?: string;
   agentId: string;
   providerId: string;
   tokenEvents: number;
@@ -441,11 +427,11 @@ export interface CostUsageReport {
   estimatedCost: number;
 }
 
-export interface ToolAuditRecord {
+export interface ToolActivityRecord {
   id: string;
   occurredAt: string;
-  tenantId: string;
-  userId: string;
+  ownerScopeId?: string;
+  ownerId: string;
   agentId: string;
   sessionId: string;
   toolId: string;
@@ -456,54 +442,24 @@ export interface ToolAuditRecord {
   sanitizedInput: Record<string, unknown>;
   sanitizedOutput: Record<string, unknown>;
   durationMillis: number;
-  approvalId: string;
-  reviewerId: string;
   idempotencyKey: string;
   failureReason: string;
 }
 
-export interface SecurityAuditRecord {
+export interface SecurityActivityRecord {
   id: string;
   occurredAt: string;
-  tenantId: string;
-  userId: string;
+  ownerScopeId?: string;
+  ownerId: string;
   resourceType: string;
   resourceId: string;
   action: string;
   sanitizedDetails: Record<string, unknown>;
 }
 
-export interface ConsoleAuditResult {
-  toolAudit: ToolAuditRecord[];
-  securityAudit: SecurityAuditRecord[];
-}
-
-export interface ReleaseScenario {
-  scenario: string;
-  acceptanceCriteria: string[];
-}
-
-export interface PhaseGate {
-  name: string;
-  status: "PASSED" | "BLOCKED" | string;
-  checks: string[];
-  rollbackSwitch: string;
-}
-
-export interface RollbackAction {
-  capability: string;
-  action: string;
-  auditRequirement: string;
-}
-
-export interface EndToEndAcceptanceReport {
-  tenantIsolation: boolean;
-  permissionFiltering: boolean;
-  highRiskConfirmation: boolean;
-  auditTraceability: boolean;
-  operationalObservability: boolean;
-  notes: string[];
-  passed?: boolean;
+export interface ConsoleActivityResult {
+  toolActivity: ToolActivityRecord[];
+  securityActivity: SecurityActivityRecord[];
 }
 
 export interface OrchestrationStep {
@@ -526,8 +482,8 @@ export interface HandoffRecord {
 export interface OrchestrationTrace {
   id: string;
   occurredAt: string;
-  tenantId: string;
-  userId: string;
+  ownerScopeId?: string;
+  ownerId: string;
   supervisorAgentId: string;
   selectedAgentId: string;
   taskIntent: string;

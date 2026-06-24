@@ -2,7 +2,7 @@ package com.harnessagent.tooling.persistence;
 
 import java.util.List;
 import java.util.Optional;
-import com.harnessagent.tooling.audit.ToolAuditRecord;
+import com.harnessagent.tooling.activity.ToolActivityRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolPendingConfirmation;
 import com.harnessagent.tooling.execution.ToolExecutionResult;
@@ -13,11 +13,11 @@ public interface ToolStore {
 
     Optional<ToolDefinition> findTool(String toolId);
 
-    List<ToolDefinition> listTools(String tenantId);
+    List<ToolDefinition> listTools(String ownerScopeId);
 
-    void saveAudit(ToolAuditRecord record);
+    void saveActivity(ToolActivityRecord record);
 
-    List<ToolAuditRecord> listAudit(String tenantId);
+    List<ToolActivityRecord> listActivity(String ownerScopeId);
 
     Optional<ToolIdempotencyRecord> findIdempotentResult(String idempotencyKey);
 
@@ -30,8 +30,8 @@ public interface ToolStore {
     boolean claimPendingConfirmation(String confirmationId, String decisionReason);
 
     List<ToolPendingConfirmation> listPendingConfirmations(
-            String tenantId,
-            String userId,
+            String ownerScopeId,
+            String ownerId,
             String agentId,
             String sessionId);
 }

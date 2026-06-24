@@ -8,8 +8,8 @@ public record TelemetryEvent(
         String id,
         Instant occurredAt,
         TelemetryEventType type,
-        String tenantId,
-        String userId,
+        String ownerScopeId,
+        String ownerId,
         String agentId,
         String component,
         long durationMillis,
@@ -19,10 +19,14 @@ public record TelemetryEvent(
         id = id == null || id.isBlank() ? UUID.randomUUID().toString() : id;
         occurredAt = occurredAt == null ? Instant.now() : occurredAt;
         type = type == null ? TelemetryEventType.API : type;
-        tenantId = tenantId == null ? "" : tenantId.trim();
-        userId = userId == null ? "" : userId.trim();
+        ownerScopeId = ownerScopeId == null ? "" : ownerScopeId.trim();
+        ownerId = ownerId == null ? "" : ownerId.trim();
         agentId = agentId == null ? "" : agentId.trim();
         component = component == null ? "" : component.trim();
         attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
+    }
+
+    public String ownerId() {
+        return ownerId;
     }
 }

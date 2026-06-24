@@ -31,10 +31,10 @@ class WorkspaceSubAgentSpecStoreTest {
                 workspaceService,
                 new ObjectMapper().findAndRegisterModules());
         RuntimeContextScope context = new RuntimeContextFactory()
-                .create("tenant-a", "user-a", "supervisor", "session-a");
+                .create("owner-scope-a", "user-a", "supervisor", "session-a");
         ExpertAgentDefinition spec = new ExpertAgentDefinition(
                 "writer",
-                "tenant-a",
+                "owner-scope-a",
                 "writer",
                 "撰写个人文档",
                 "task",

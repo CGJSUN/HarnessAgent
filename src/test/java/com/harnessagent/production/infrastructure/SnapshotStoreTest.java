@@ -16,7 +16,7 @@ class SnapshotStoreTest {
         SnapshotStore store = new InMemorySnapshotStore("memory://snapshots");
         SnapshotMetadata requested = new SnapshotMetadata(
                 null,
-                "tenant-a",
+                "owner-scope-a",
                 "agent-a",
                 "session-a",
                 "task-a",
@@ -29,7 +29,7 @@ class SnapshotStoreTest {
         assertThat(saved.id()).isNotBlank();
         assertThat(saved.backendType()).isEqualTo(SnapshotStoreType.NONE);
         assertThat(saved.location()).isEqualTo("memory://snapshots/" + saved.id());
-        assertThat(store.list("tenant-a", "agent-a", "session-a")).containsExactly(saved);
+        assertThat(store.list("owner-scope-a", "agent-a", "session-a")).containsExactly(saved);
         assertThat(store.load(saved.id()))
                 .get()
                 .satisfies(snapshot -> {

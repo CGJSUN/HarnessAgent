@@ -1,41 +1,34 @@
 package com.harnessagent.tooling.domain;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record ToolPermissionPolicy(
-        Set<String> allowedTenantIds,
-        Set<String> allowedUserIds,
+        @JsonAlias("allowedUserIds") Set<String> allowedOwnerIds,
         Set<String> allowedAgentIds,
-        Set<String> allowedDepartments,
-        Set<String> allowedRoles) {
+        Set<String> deniedOwnerIds) {
 
     public ToolPermissionPolicy {
-        allowedTenantIds = safeSet(allowedTenantIds);
-        allowedUserIds = safeSet(allowedUserIds);
+        allowedOwnerIds = safeSet(allowedOwnerIds);
         allowedAgentIds = safeSet(allowedAgentIds);
-        allowedDepartments = safeSet(allowedDepartments);
-        allowedRoles = safeSet(allowedRoles);
+        deniedOwnerIds = safeSet(deniedOwnerIds);
     }
 
     public static ToolPermissionPolicy allowAll() {
-        return new ToolPermissionPolicy(Set.of(), Set.of(), Set.of(), Set.of(), Set.of());
+        return new ToolPermissionPolicy(Set.of(), Set.of(), Set.of());
     }
 
     public boolean permits(ToolPrincipal principal) {
-        return allowedOrContains(allowedTenantIds, principal.tenantId())
-                && allowedOrContains(allowedUserIds, principal.userId())
-                && allowedOrContains(allowedAgentIds, principal.agentId())
-                && allowedOrIntersects(allowedDepartments, principal.departments())
-                && allowedOrIntersects(allowedRoles, principal.roles());
+        return !deniedOwnerIds.contains(principal.ownerId())
+                && allowedOrContains(allowedOwnerIds, principal.ownerId())
+                && allowedOrContains(allowedAgentIds, principal.agentId());
     }
 
     private static boolean allowedOrContains(Set<String> configured, String value) {
         return configured.isEmpty() || configured.contains(value);
-    }
-
-    private static boolean allowedOrIntersects(Set<String> configured, Set<String> values) {
-        return configured.isEmpty() || values.stream().anyMatch(configured::contains);
     }
 
     private static Set<String> safeSet(Set<String> input) {

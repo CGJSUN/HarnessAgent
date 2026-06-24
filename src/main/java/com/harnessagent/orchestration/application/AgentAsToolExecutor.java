@@ -74,9 +74,9 @@ public class AgentAsToolExecutor implements ToolExecutor {
         Map<String, Object> requestedContext = context(parameters.get("context"));
         Map<String, Object> sharedContext = redactor.redactMap(child.contextBoundary().filter(requestedContext));
         String childSessionId = "agent-tool-" + UUID.randomUUID();
-        RuntimeContextScope childContext = contextFactory.create(
-                command.tenantId(),
-                command.userId(),
+        RuntimeContextScope childContext = contextFactory.createFromOwnerScope(
+                command.ownerScopeId(),
+                command.ownerId(),
                 child.id(),
                 childSessionId);
         String task = string(parameters.get("task"));
@@ -87,8 +87,8 @@ public class AgentAsToolExecutor implements ToolExecutor {
             OrchestrationTrace trace = traceStore.save(new OrchestrationTrace(
                     null,
                     Instant.now(),
-                    command.tenantId(),
-                    command.userId(),
+                    command.ownerScopeId(),
+                    command.ownerId(),
                     command.agentId(),
                     child.id(),
                     task,
@@ -118,8 +118,8 @@ public class AgentAsToolExecutor implements ToolExecutor {
             traceStore.save(new OrchestrationTrace(
                     null,
                     Instant.now(),
-                    command.tenantId(),
-                    command.userId(),
+                    command.ownerScopeId(),
+                    command.ownerId(),
                     command.agentId(),
                     child.id(),
                     task,

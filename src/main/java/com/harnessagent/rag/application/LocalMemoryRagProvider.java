@@ -2,7 +2,7 @@ package com.harnessagent.rag.application;
 
 import com.harnessagent.rag.domain.MemoryRagProviderDescriptor;
 import com.harnessagent.rag.domain.MemoryRagProviderType;
-import com.harnessagent.rag.domain.RetrievalPrincipal;
+import com.harnessagent.rag.domain.OwnerRetrievalPrincipal;
 import com.harnessagent.rag.retrieval.KnowledgeRetrievalResult;
 
 public class LocalMemoryRagProvider implements MemoryRagProvider {
@@ -28,7 +28,7 @@ public class LocalMemoryRagProvider implements MemoryRagProvider {
     }
 
     @Override
-    public KnowledgeRetrievalResult retrieve(RetrievalPrincipal principal, String query, int limit) {
+    public KnowledgeRetrievalResult retrieve(OwnerRetrievalPrincipal principal, String query, int limit) {
         return knowledgeService.retrieve(principal, query, limit);
     }
 }

@@ -19,21 +19,21 @@ import com.harnessagent.session.persistence.JdbcSessionStore;
 class JdbcSessionStoreTest {
 
     @Test
-    void sharesMessagesAcrossInstancesAndDeletesOnlyTargetTenantSession() {
+    void sharesMessagesAcrossInstancesAndDeletesOnlyTargetOwnerScopeSession() {
         DataSource dataSource = database();
         JdbcSessionStore writer = store(dataSource);
         JdbcSessionStore reader = store(dataSource);
-        RuntimeContextScope base = context("tenant-a", "user-a", "agent-a", "session-a");
-        RuntimeContextScope otherTenant = context("tenant-b", "user-a", "agent-a", "session-a");
+        RuntimeContextScope base = context("owner-scope-a", "user-a", "agent-a", "session-a");
+        RuntimeContextScope otherOwnerScope = context("owner-scope-b", "user-a", "agent-a", "session-a");
 
         writer.appendMessage(base, new ChatMessage("m1", MessageRole.USER, "hello", Instant.parse("2026-06-15T08:00:00Z")));
         writer.appendMessage(base, new ChatMessage("m2", MessageRole.ASSISTANT, "hi", Instant.parse("2026-06-15T08:00:01Z")));
-        writer.appendMessage(otherTenant, new ChatMessage("m3", MessageRole.USER, "isolated", Instant.parse("2026-06-15T08:00:02Z")));
+        writer.appendMessage(otherOwnerScope, new ChatMessage("m3", MessageRole.USER, "isolated", Instant.parse("2026-06-15T08:00:02Z")));
 
         assertThat(reader.listMessages(base))
                 .extracting(ChatMessage::content)
                 .containsExactly("hello", "hi");
-        assertThat(reader.listSessions("tenant-a", "user-a", "agent-a"))
+        assertThat(reader.listSessions("owner-scope-a", "user-a", "agent-a"))
                 .singleElement()
                 .satisfies(summary -> {
                     assertThat(summary.sessionId()).isEqualTo("session-a");
@@ -44,7 +44,7 @@ class JdbcSessionStoreTest {
         assertThat(reader.deleteSession(base)).isTrue();
 
         assertThat(writer.listMessages(base)).isEmpty();
-        assertThat(writer.listMessages(otherTenant))
+        assertThat(writer.listMessages(otherOwnerScope))
                 .extracting(ChatMessage::content)
                 .containsExactly("isolated");
     }
@@ -54,7 +54,7 @@ class JdbcSessionStoreTest {
         DataSource dataSource = database();
         JdbcSessionStore writer = store(dataSource);
         JdbcSessionStore reader = store(dataSource);
-        RuntimeContextScope context = context("tenant-a", "user-a", "agent-a", "session-blocks");
+        RuntimeContextScope context = context("owner-scope-a", "user-a", "agent-a", "session-blocks");
         ChatMessage message = new ChatMessage(
                 "m-blocks",
                 MessageRole.ASSISTANT,
@@ -86,12 +86,14 @@ class JdbcSessionStoreTest {
         DataSource dataSource = database();
         NamedParameterJdbcTemplate jdbc = new NamedParameterJdbcTemplate(dataSource);
         JdbcSessionStore reader = new JdbcSessionStore(jdbc);
-        RuntimeContextScope context = context("tenant-a", "user-a", "agent-a", "session-legacy");
+        RuntimeContextScope context = context("owner-scope-a", "user-a", "agent-a", "session-legacy");
         jdbc.update("""
                 insert into ha_session_messages (
-                    id, tenant_id, user_id, agent_id, session_id, role, content, content_blocks_json, created_at
+                    id, tenant_id, user_id, owner_scope_id, owner_id, agent_id, session_id,
+                    role, content, content_blocks_json, created_at
                 ) values (
-                    'legacy-1', 'tenant-a', 'user-a', 'agent-a', 'session-legacy', 'ASSISTANT', 'legacy text', '[]', '2026-06-15 08:00:00'
+                    'legacy-1', 'owner-scope-a', 'user-a', 'owner-scope-a', 'user-a',
+                    'agent-a', 'session-legacy', 'ASSISTANT', 'legacy text', '[]', '2026-06-15 08:00:00'
                 )
                 """, Map.of());
 
@@ -113,10 +115,15 @@ class JdbcSessionStoreTest {
                 .generateUniqueName(true)
                 .addScript("classpath:db/migration/V1__durable_persistence.sql")
                 .addScript("classpath:db/migration/V3__session_message_content_blocks.sql")
+                .addScript("classpath:db/migration/V5__tool_workload_type.sql")
+                .addScript("classpath:db/migration/V7__personal_memory_rag_metadata.sql")
+                .addScript("classpath:db/migration/V9__personal_tooling_hitl.sql")
+                .addScript("classpath:db/migration/V11__owner_scope_persistence.sql")
+                .addScript("classpath:db/migration/V13__personal_authorization_policy.sql")
                 .build();
     }
 
-    private static RuntimeContextScope context(String tenantId, String userId, String agentId, String sessionId) {
-        return new RuntimeContextScope(tenantId, userId, agentId, sessionId, userId, sessionId);
+    private static RuntimeContextScope context(String ownerScopeId, String userId, String agentId, String sessionId) {
+        return new RuntimeContextScope(ownerScopeId, userId, agentId, sessionId, userId, sessionId);
     }
 }

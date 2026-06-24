@@ -2,7 +2,7 @@ package com.harnessagent.console.application;
 
 import com.harnessagent.config.HarnessAgentProperties;
 import com.harnessagent.console.view.AgentManagementView;
-import com.harnessagent.console.view.ConsoleAuditResult;
+import com.harnessagent.console.view.ConsoleActivityResult;
 import com.harnessagent.console.view.CostUsageReport;
 import com.harnessagent.console.view.KnowledgeSourceView;
 import com.harnessagent.console.view.OperationalMetricSummary;
@@ -19,20 +19,18 @@ import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.security.domain.Permission;
 import com.harnessagent.security.domain.ResourceAccessPolicy;
 import com.harnessagent.security.domain.ResourceType;
-import com.harnessagent.security.persistence.SecurityAuditRecord;
-import com.harnessagent.security.application.SecurityAuditService;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.persistence.SecurityActivityRecord;
+import com.harnessagent.security.application.SecurityActivityService;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.session.persistence.SessionStore;
-import com.harnessagent.tooling.audit.ToolAuditRecord;
+import com.harnessagent.skill.domain.PersonalSkillMetadata;
+import com.harnessagent.tooling.activity.ToolActivityRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolPendingConfirmation;
 import com.harnessagent.tooling.application.ToolService;
 import com.harnessagent.rag.domain.KnowledgeSource;
-import com.harnessagent.security.application.SkillGovernanceService;
-import com.harnessagent.security.domain.SkillVersion;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -43,9 +41,8 @@ public class ConsoleService {
     private final HarnessAgentProperties properties;
     private final ToolService toolService;
     private final KnowledgeService knowledgeService;
-    private final SkillGovernanceService skillGovernanceService;
     private final RuntimeTelemetry telemetry;
-    private final SecurityAuditService securityAuditService;
+    private final SecurityActivityService securityActivityService;
 
     public ConsoleService(
             RuntimeContextFactory runtimeContextFactory,
@@ -53,31 +50,29 @@ public class ConsoleService {
             HarnessAgentProperties properties,
             ToolService toolService,
             KnowledgeService knowledgeService,
-            SkillGovernanceService skillGovernanceService,
             RuntimeTelemetry telemetry,
-            SecurityAuditService securityAuditService) {
+            SecurityActivityService securityActivityService) {
         this.runtimeContextFactory = runtimeContextFactory;
         this.sessionStore = sessionStore;
         this.properties = properties;
         this.toolService = toolService;
         this.knowledgeService = knowledgeService;
-        this.skillGovernanceService = skillGovernanceService;
         this.telemetry = telemetry;
-        this.securityAuditService = securityAuditService;
+        this.securityActivityService = securityActivityService;
     }
 
     public UserConsoleView userConsole(
-            SecurityPrincipal principal, String agentId, String sessionId) {
-        RuntimeContextScope context = runtimeContextFactory.create(
-                principal.tenantId(),
-                principal.userId(),
+            OwnerPrincipal principal, String agentId, String sessionId) {
+        RuntimeContextScope context = runtimeContextFactory.createFromOwnerScope(
+                principal.scopeId(),
+                principal.ownerId(),
                 agentId,
                 sessionId == null || sessionId.isBlank() ? "_" : sessionId);
-        List<ToolAuditRecord> toolAudit = toolService.listAudit(principal.tenantId()).stream()
-                .filter(record -> record.userId().equals(principal.userId()))
+        List<ToolActivityRecord> toolActivity = toolService.listActivity(principal.scopeId()).stream()
+                .filter(record -> record.ownerId().equals(principal.ownerId()))
                 .filter(record -> record.agentId().equals(agentId))
                 .toList();
-        List<ToolStatusView> toolStatus = toolAudit.stream()
+        List<ToolStatusView> toolStatus = toolActivity.stream()
                 .map(record -> new ToolStatusView(
                         record.toolId(),
                         record.toolName(),
@@ -86,14 +81,14 @@ public class ConsoleService {
                         record.durationMillis()))
                 .toList();
         List<ToolConfirmationView> confirmations = toolService.listPendingConfirmations(
-                        principal.tenantId(),
-                        principal.userId(),
+                        principal.scopeId(),
+                        principal.ownerId(),
                         agentId,
                         context.sessionId()).stream()
                 .map(ConsoleService::confirmationView)
                 .toList();
         return new UserConsoleView(
-                sessionStore.listSessions(context.tenantId(), context.userId(), context.agentId()),
+                sessionStore.listSessions(context.ownerScopeId(), context.ownerId(), context.agentId()),
                 "_".equals(context.sessionId()) ? List.of() : sessionStore.listMessages(context),
                 List.of(),
                 toolStatus,
@@ -114,20 +109,20 @@ public class ConsoleService {
                 pending.idempotencyKey());
     }
 
-    public List<AgentManagementView> listAgents(SecurityPrincipal principal) {
-        requireAdmin(principal);
+    public List<AgentManagementView> listAgents(OwnerPrincipal principal) {
+        requireOwner(principal);
         return properties.getAgents().entrySet().stream()
                 .map(entry -> AgentManagementView.from(entry.getKey(), entry.getValue()))
                 .toList();
     }
 
     public AgentManagementView updateAgentPrompt(
-            SecurityPrincipal principal, String agentId, String systemPrompt) {
-        requireAdmin(principal);
+            OwnerPrincipal principal, String agentId, String systemPrompt) {
+        requireOwner(principal);
         HarnessAgentProperties.AgentDefinition definition = properties.requireAgent(agentId);
         String before = definition.getSystemPrompt() == null ? "" : definition.getSystemPrompt();
         definition.setSystemPrompt(systemPrompt);
-        securityAuditService.record(
+        securityActivityService.record(
                 principal,
                 ResourceType.AGENT,
                 agentId,
@@ -140,14 +135,14 @@ public class ConsoleService {
     }
 
     public AgentManagementView updateAgentConfig(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             String agentId,
             String modelProvider,
             String modelName,
             String workspace,
             Boolean compaction,
             Integer maxIters) {
-        requireAdmin(principal);
+        requireOwner(principal);
         HarnessAgentProperties.AgentDefinition definition = properties.requireAgent(agentId);
         if (modelProvider != null) {
             definition.setModelProvider(modelProvider);
@@ -164,7 +159,7 @@ public class ConsoleService {
         if (maxIters != null) {
             definition.setMaxIters(maxIters);
         }
-        securityAuditService.record(
+        securityActivityService.record(
                 principal,
                 ResourceType.AGENT,
                 agentId,
@@ -173,15 +168,15 @@ public class ConsoleService {
         return AgentManagementView.from(agentId, definition);
     }
 
-    public List<ToolDefinition> listTools(SecurityPrincipal principal) {
-        requireAdmin(principal);
-        return toolService.listTools(principal.tenantId());
+    public List<ToolDefinition> listTools(OwnerPrincipal principal) {
+        requireOwner(principal);
+        return toolService.listTools(principal.scopeId());
     }
 
-    public ToolDefinition setToolEnabled(SecurityPrincipal principal, String toolId, boolean enabled) {
-        requireAdmin(principal);
+    public ToolDefinition setToolEnabled(OwnerPrincipal principal, String toolId, boolean enabled) {
+        requireOwner(principal);
         ToolDefinition updated = toolService.setEnabled(toolId, enabled);
-        securityAuditService.record(
+        securityActivityService.record(
                 principal,
                 ResourceType.TOOL,
                 toolId,
@@ -190,17 +185,17 @@ public class ConsoleService {
         return updated;
     }
 
-    public List<KnowledgeSourceView> listKnowledge(SecurityPrincipal principal) {
-        requireAdmin(principal);
-        return knowledgeService.listSources(principal.tenantId()).stream()
+    public List<KnowledgeSourceView> listKnowledge(OwnerPrincipal principal) {
+        requireOwner(principal);
+        return knowledgeService.listSources(principal.scopeId()).stream()
                 .map(KnowledgeSourceView::from)
                 .toList();
     }
 
-    public KnowledgeSource deleteKnowledge(SecurityPrincipal principal, String sourceId) {
-        requireAdmin(principal);
+    public KnowledgeSource deleteKnowledge(OwnerPrincipal principal, String sourceId) {
+        requireOwner(principal);
         KnowledgeSource deleted = knowledgeService.deleteSource(sourceId);
-        securityAuditService.record(
+        securityActivityService.record(
                 principal,
                 ResourceType.KNOWLEDGE_SOURCE,
                 sourceId,
@@ -209,10 +204,10 @@ public class ConsoleService {
         return deleted;
     }
 
-    public KnowledgeSource revokeKnowledge(SecurityPrincipal principal, String sourceId) {
-        requireAdmin(principal);
+    public KnowledgeSource revokeKnowledge(OwnerPrincipal principal, String sourceId) {
+        requireOwner(principal);
         KnowledgeSource revoked = knowledgeService.revokeSource(sourceId);
-        securityAuditService.record(
+        securityActivityService.record(
                 principal,
                 ResourceType.KNOWLEDGE_SOURCE,
                 sourceId,
@@ -221,42 +216,21 @@ public class ConsoleService {
         return revoked;
     }
 
-    public List<SkillVersion> listSkills(SecurityPrincipal principal, String skillName) {
-        requireAdmin(principal);
-        return skillGovernanceService.list(principal.tenantId(), skillName);
+    public List<PersonalSkillMetadata> listSkills(OwnerPrincipal principal, String skillName) {
+        requireOwner(principal);
+        return List.of();
     }
 
-    public SkillVersion approveSkill(SecurityPrincipal principal, String versionId) {
-        requireAdmin(principal);
-        SkillVersion skill = skillGovernanceService.approve(versionId, principal.userId());
-        auditSkill(principal, skill, "APPROVE_SKILL");
-        return skill;
-    }
-
-    public SkillVersion publishSkill(SecurityPrincipal principal, String versionId) {
-        requireAdmin(principal);
-        SkillVersion skill = skillGovernanceService.publish(versionId);
-        auditSkill(principal, skill, "PUBLISH_SKILL");
-        return skill;
-    }
-
-    public SkillVersion disableSkill(SecurityPrincipal principal, String versionId) {
-        requireAdmin(principal);
-        SkillVersion skill = skillGovernanceService.disable(versionId);
-        auditSkill(principal, skill, "DISABLE_SKILL");
-        return skill;
-    }
-
-    public OperationalMetricSummary metrics(SecurityPrincipal principal) {
-        requireAdminOrOps(principal);
-        List<TelemetryEvent> events = telemetry.list(principal.tenantId());
-        List<RagMetric> ragMetrics = knowledgeService.listMetrics(principal.tenantId());
+    public OperationalMetricSummary metrics(OwnerPrincipal principal) {
+        requireOwner(principal);
+        List<TelemetryEvent> events = telemetry.list(principal.scopeId());
+        List<RagMetric> ragMetrics = knowledgeService.listMetrics(principal.scopeId());
         long failures = events.stream()
                 .filter(event -> String.valueOf(event.attributes().get("status")).contains("failed"))
                 .count();
-        long toolCalls = toolService.listAudit(principal.tenantId()).size();
+        long toolCalls = toolService.listActivity(principal.scopeId()).size();
         return new OperationalMetricSummary(
-                sessionStore.listSessions(principal.tenantId(), principal.userId(), null).size(),
+                sessionStore.listSessions(principal.scopeId(), principal.ownerId(), null).size(),
                 events.stream().filter(event -> event.type() == TelemetryEventType.AGENT
                         || event.type() == TelemetryEventType.MODEL).count(),
                 toolCalls,
@@ -264,12 +238,12 @@ public class ConsoleService {
                 ragMetrics.stream().filter(metric -> !metric.hit()).count(),
                 failures,
                 events.stream().mapToLong(TelemetryEvent::durationMillis).sum(),
-                knowledgeService.listFeedback(principal.tenantId()).size());
+                knowledgeService.listFeedback(principal.scopeId()).size());
     }
 
-    public CostUsageReport cost(SecurityPrincipal principal, String agentId, String providerId) {
-        requireAdminOrOps(principal);
-        List<TelemetryEvent> tokenEvents = telemetry.list(principal.tenantId()).stream()
+    public CostUsageReport cost(OwnerPrincipal principal, String agentId, String providerId) {
+        requireOwner(principal);
+        List<TelemetryEvent> tokenEvents = telemetry.list(principal.scopeId()).stream()
                 .filter(event -> event.type() == TelemetryEventType.TOKEN)
                 .filter(event -> agentId == null || agentId.isBlank() || event.agentId().equals(agentId))
                 .filter(event -> providerId == null || providerId.isBlank()
@@ -282,7 +256,7 @@ public class ConsoleService {
                 .mapToLong(Number::longValue)
                 .sum();
         return new CostUsageReport(
-                principal.tenantId(),
+                principal.scopeId(),
                 agentId == null ? "" : agentId,
                 providerId == null ? "" : providerId,
                 tokenEvents.size(),
@@ -290,57 +264,43 @@ public class ConsoleService {
                 estimatedTokens * 0.000001d);
     }
 
-    public ConsoleAuditResult auditSearch(SecurityPrincipal principal) {
-        return auditSearch(principal, new AuditSearchFilter(null, null, null, null, null, null));
+    public ConsoleActivityResult activitySearch(OwnerPrincipal principal) {
+        return activitySearch(principal, new ActivitySearchFilter(null, null, null, null, null, null));
     }
 
-    public ConsoleAuditResult auditSearch(SecurityPrincipal principal, AuditSearchFilter filter) {
-        ResourceAccessPolicy policy = new ResourceAccessPolicy(
-                ResourceType.AUDIT,
-                principal.tenantId(),
-                Set.of(),
-                Set.of("auditor", "admin"),
-                Set.of(),
-                Set.of(Permission.SEARCH_AUDIT));
-        List<SecurityAuditRecord> securityAudit =
-                securityAuditService.search(principal, principal.tenantId(), policy).stream()
+    public ConsoleActivityResult activitySearch(OwnerPrincipal principal, ActivitySearchFilter filter) {
+        requireOwner(principal);
+        ResourceAccessPolicy policy = ResourceAccessPolicy.ownerOnly(
+                principal.scopeId(),
+                principal.ownerId(),
+                ResourceType.ACTIVITY,
+                Permission.SEARCH_ACTIVITY);
+        List<SecurityActivityRecord> securityActivity =
+                securityActivityService.search(principal, principal.scopeId(), policy).stream()
+                        .filter(record -> record.ownerId().equals(principal.ownerId()))
                         .filter(record -> filter.matches(
-                                record.userId(),
+                                record.ownerId(),
                                 "",
                                 record.resourceId(),
                                 record.action(),
                                 record.occurredAt()))
                         .toList();
-        return new ConsoleAuditResult(
-                toolService.listAudit(principal.tenantId()).stream()
+        return new ConsoleActivityResult(
+                toolService.listActivity(principal.scopeId()).stream()
+                        .filter(record -> record.ownerId().equals(principal.ownerId()))
                         .filter(record -> filter.matches(
-                                record.userId(),
+                                record.ownerId(),
                                 record.sessionId(),
                                 record.toolId(),
                                 record.status().name(),
                                 record.occurredAt()))
                         .toList(),
-                securityAudit);
+                securityActivity);
     }
 
-    private void auditSkill(SecurityPrincipal principal, SkillVersion skill, String action) {
-        securityAuditService.record(
-                principal,
-                ResourceType.SKILL,
-                skill.id(),
-                action,
-                Map.of("skillName", skill.skillName(), "version", skill.version()));
-    }
-
-    private static void requireAdmin(SecurityPrincipal principal) {
-        if (!principal.roles().contains("admin")) {
-            throw new IllegalStateException("admin role is required");
-        }
-    }
-
-    private static void requireAdminOrOps(SecurityPrincipal principal) {
-        if (!principal.roles().contains("admin") && !principal.roles().contains("ops")) {
-            throw new IllegalStateException("admin or ops role is required");
+    private static void requireOwner(OwnerPrincipal principal) {
+        if (principal == null || principal.ownerId().isBlank()) {
+            throw new IllegalStateException("diagnostics access is restricted");
         }
     }
 }

@@ -89,7 +89,7 @@ public class ContextCompactionService {
             List<ChatMessage> retainedMessages) {
         List<ChatMessage> source = sourceMessages == null ? List.of() : List.copyOf(sourceMessages);
         List<ChatMessage> retained = retainedMessages == null ? List.of() : List.copyOf(retainedMessages);
-        String id = sha256(context.userId()
+        String id = sha256(context.ownerId()
                 + ":" + context.agentId()
                 + ":" + context.sessionId()
                 + ":" + source.stream().map(ChatMessage::id).reduce("", String::concat))
@@ -98,7 +98,7 @@ public class ContextCompactionService {
                 + relativeCompactionPath(context, id).toString().replace('\\', '/');
         return new ContextCompactionSummary(
                 id,
-                context.userId(),
+                context.ownerId(),
                 context.agentId(),
                 context.sessionId(),
                 uri,

@@ -10,7 +10,7 @@ import com.harnessagent.rag.domain.MemoryLayer;
 import com.harnessagent.rag.domain.MemoryWriteStatus;
 import com.harnessagent.rag.domain.PersonalDataExport;
 import com.harnessagent.rag.domain.PersonalMemoryRecord;
-import com.harnessagent.rag.domain.RetrievalPrincipal;
+import com.harnessagent.rag.domain.OwnerRetrievalPrincipal;
 import com.harnessagent.rag.persistence.InMemoryKnowledgeStore;
 import com.harnessagent.rag.retrieval.KnowledgeRetrievalResult;
 import java.util.Set;
@@ -43,7 +43,7 @@ class PersonalMemoryServiceTest {
 
         PersonalMemoryRecord confirmed = memoryService.confirmWrite(pending.id());
         KnowledgeRetrievalResult result = knowledgeService.retrieve(
-                new RetrievalPrincipal("personal", "owner-a", "personal-assistant", Set.of(), Set.of()),
+                OwnerRetrievalPrincipal.forOwner("owner-a", "personal-assistant"),
                 "中文 回答 偏好",
                 5);
 
@@ -70,11 +70,11 @@ class PersonalMemoryServiceTest {
                 true)).id());
 
         KnowledgeRetrievalResult sameAgent = knowledgeService.retrieve(
-                new RetrievalPrincipal("personal", "owner-a", "agent-a", Set.of(), Set.of()),
+                OwnerRetrievalPrincipal.forOwner("owner-a", "agent-a"),
                 "番茄钟 计划",
                 5);
         KnowledgeRetrievalResult otherAgent = knowledgeService.retrieve(
-                new RetrievalPrincipal("personal", "owner-a", "agent-b", Set.of(), Set.of()),
+                OwnerRetrievalPrincipal.forOwner("owner-a", "agent-b"),
                 "番茄钟 计划",
                 5);
 
@@ -97,7 +97,7 @@ class PersonalMemoryServiceTest {
         memoryService.rejectWrite(rejected.id());
 
         KnowledgeRetrievalResult afterReject = knowledgeService.retrieve(
-                new RetrievalPrincipal("personal", "owner-a", "personal-assistant", Set.of(), Set.of()),
+                OwnerRetrievalPrincipal.forOwner("owner-a", "personal-assistant"),
                 "输出 表格",
                 5);
         assertThat(afterReject.answered()).isFalse();
@@ -113,7 +113,7 @@ class PersonalMemoryServiceTest {
                 true)).id());
         PersonalMemoryRecord deleted = memoryService.deleteMemory(confirmed.id());
         KnowledgeRetrievalResult afterDelete = knowledgeService.retrieve(
-                new RetrievalPrincipal("personal", "owner-a", "personal-assistant", Set.of(), Set.of()),
+                OwnerRetrievalPrincipal.forOwner("owner-a", "personal-assistant"),
                 "最小 可行 改动",
                 5);
 
@@ -147,8 +147,6 @@ class PersonalMemoryServiceTest {
                         "行程文件",
                         "v2",
                         KnowledgeVisibility.RESTRICTED,
-                        Set.of(),
-                        Set.of(),
                         Set.of(),
                         "manual",
                         KnowledgeSourceType.LOCAL_FILE,

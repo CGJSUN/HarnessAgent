@@ -5,12 +5,13 @@ import com.harnessagent.agent.runtime.AgentRunRequest;
 import com.harnessagent.agent.runtime.AgentRuntime;
 import com.harnessagent.production.telemetry.RuntimeTelemetry;
 import com.harnessagent.production.telemetry.TelemetryEventType;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
+import com.harnessagent.security.application.SafeLogFields;
 import com.harnessagent.security.application.SensitiveDataRedactor;
 import com.harnessagent.runtime.RuntimeContextFactory;
 import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.session.domain.ChatMessage;
-import com.harnessagent.tooling.domain.ToolAuditPolicy;
+import com.harnessagent.tooling.domain.ToolActivityPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolOutputSchema;
 import com.harnessagent.tooling.domain.ToolParameterSchema;
@@ -114,7 +115,7 @@ public class OrchestrationService {
         }
         boolean mutating = childMayMutate(child);
         return toolService.registerTool(new ToolRegistration(
-                child.tenantId(),
+                child.ownerScopeId(),
                 "agent." + child.name(),
                 child.purpose(),
                 "agent-orchestration",
@@ -126,8 +127,8 @@ public class OrchestrationService {
                 child.enabled(),
                 new ToolParameterSchema(Set.of("task"), Set.of("context"), Map.of(), Set.of()),
                 ToolOutputSchema.structured("application/json", Map.of("type", "object", "format", "agent-tool-result")),
-                new ToolPermissionPolicy(Set.of(child.tenantId()), Set.of(), Set.of(), Set.of(), child.requiredRoles()),
-                ToolAuditPolicy.standard()));
+                new ToolPermissionPolicy(Set.of(child.ownerId()), Set.of(), Set.of()),
+                ToolActivityPolicy.standard()));
     }
 
     private AgentToolDefinition agentToolDefinition(String childAgentId) {
@@ -138,16 +139,16 @@ public class OrchestrationService {
                 child.id(),
                 child.inputContract(),
                 child.outputContract(),
-                child.requiredRoles());
+                child.allowedOwnerIds());
     }
 
     public OrchestrationResult orchestrate(OrchestrationRequest request) {
         Instant startedAt = Instant.now();
-        List<ExpertAgentDefinition> candidates = registry.list(request.principal().tenantId());
+        List<ExpertAgentDefinition> candidates = registry.list(request.principal().scopeId());
         RouteDecision decision = router.route(request.principal(), request.taskIntent(), request.context(), candidates);
         log.info(
-                "orchestration route tenantId={} supervisorAgentId={} selectedAgentId={} status={} candidateCount={}",
-                request.principal().tenantId(),
+                "orchestration route ownerHash={} supervisorAgentId={} selectedAgentId={} status={} candidateCount={}",
+                SafeLogFields.owner(request.principal().ownerId()),
                 request.supervisorAgentId(),
                 decision.selectedAgentId(),
                 decision.status(),
@@ -196,24 +197,24 @@ public class OrchestrationService {
                 backgroundSharedContext = sharedContext;
             }
             log.info(
-                    "orchestration handoff executed tenantId={} supervisorAgentId={} selectedAgentId={}",
-                    request.principal().tenantId(),
+                    "orchestration handoff executed ownerHash={} supervisorAgentId={} selectedAgentId={}",
+                    SafeLogFields.owner(request.principal().ownerId()),
                     request.supervisorAgentId(),
                     selected.id());
         } else {
             attributes.put("nextAction", nextAction(request.failureStrategy()));
             log.warn(
-                    "orchestration route not_executed tenantId={} supervisorAgentId={} status={} reason={}",
-                    request.principal().tenantId(),
+                    "orchestration route not_executed ownerHash={} supervisorAgentId={} status={} reason={}",
+                    SafeLogFields.owner(request.principal().ownerId()),
                     request.supervisorAgentId(),
                     decision.status(),
-                    com.harnessagent.security.application.SafeLogFields.reasonCode(decision.reason()));
+                    SafeLogFields.reasonCode(decision.reason()));
         }
         OrchestrationTrace trace = new OrchestrationTrace(
                 null,
                 Instant.now(),
-                request.principal().tenantId(),
-                request.principal().userId(),
+                request.principal().scopeId(),
+                request.principal().ownerId(),
                 request.supervisorAgentId(),
                 decision.selectedAgentId(),
                 request.taskIntent(),
@@ -229,8 +230,8 @@ public class OrchestrationService {
         }
         telemetry.record(
                 TelemetryEventType.ORCHESTRATION,
-                request.principal().tenantId(),
-                request.principal().userId(),
+                request.principal().scopeId(),
+                request.principal().ownerId(),
                 request.supervisorAgentId(),
                 "orchestration",
                 Duration.between(startedAt, Instant.now()),
@@ -378,8 +379,8 @@ public class OrchestrationService {
                 traceStore.save(new OrchestrationTrace(
                         null,
                         Instant.now(),
-                        request.principal().tenantId(),
-                        request.principal().userId(),
+                        request.principal().scopeId(),
+                        request.principal().ownerId(),
                         request.supervisorAgentId(),
                         selected.id(),
                         request.taskIntent(),
@@ -407,8 +408,8 @@ public class OrchestrationService {
                 traceStore.save(new OrchestrationTrace(
                         null,
                         Instant.now(),
-                        request.principal().tenantId(),
-                        request.principal().userId(),
+                        request.principal().scopeId(),
+                        request.principal().ownerId(),
                         request.supervisorAgentId(),
                         selected.id(),
                         request.taskIntent(),
@@ -439,13 +440,13 @@ public class OrchestrationService {
     }
 
     private String invokeAgent(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             String agentId,
             String task,
             Map<String, Object> sharedContext) {
-        RuntimeContextScope childContext = contextFactory.create(
-                principal.tenantId(),
-                principal.userId(),
+        RuntimeContextScope childContext = contextFactory.createFromOwnerScope(
+                principal.scopeId(),
+                principal.ownerId(),
                 agentId,
                 "handoff-" + UUID.randomUUID());
         AgentReply reply = agentRuntime.complete(new AgentRunRequest(
@@ -477,7 +478,7 @@ public class OrchestrationService {
     }
 
     private static Map<String, Object> candidateReasons(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             String taskIntent,
             List<ExpertAgentDefinition> candidates) {
         Map<String, Object> reasons = new LinkedHashMap<>();
@@ -486,9 +487,9 @@ public class OrchestrationService {
                 reasons.put(candidate.id(), "not_approved");
             } else if (!candidate.enabled()) {
                 reasons.put(candidate.id(), "disabled");
-            } else if (!candidate.requiredRoles().isEmpty()
-                    && candidate.requiredRoles().stream().noneMatch(principal.roles()::contains)) {
-                reasons.put(candidate.id(), "role_not_permitted");
+            } else if (!candidate.allowedOwnerIds().isEmpty()
+                    && !candidate.allowedOwnerIds().contains(principal.ownerId())) {
+                reasons.put(candidate.id(), "owner_policy_not_permitted");
             } else if (candidate.canHandle(taskIntent)) {
                 reasons.put(candidate.id(), "matched_intent");
             } else {
@@ -518,12 +519,7 @@ public class OrchestrationService {
         return value == null ? "" : value;
     }
 
-    public List<OrchestrationTrace> listTraces(SecurityPrincipal principal) {
-        if (!principal.roles().contains("admin")
-                && !principal.roles().contains("ops")
-                && !principal.roles().contains("auditor")) {
-            throw new IllegalStateException("admin, ops, or auditor role is required");
-        }
-        return traceStore.list(principal.tenantId());
+    public List<OrchestrationTrace> listTraces(OwnerPrincipal principal) {
+        return traceStore.list(principal.scopeId());
     }
 }

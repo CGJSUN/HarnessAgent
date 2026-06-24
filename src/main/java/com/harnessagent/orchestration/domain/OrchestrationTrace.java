@@ -8,8 +8,8 @@ import java.util.UUID;
 public record OrchestrationTrace(
         String id,
         Instant occurredAt,
-        String tenantId,
-        String userId,
+        String ownerScopeId,
+        String ownerId,
         String supervisorAgentId,
         String selectedAgentId,
         String taskIntent,

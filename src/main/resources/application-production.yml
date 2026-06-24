@@ -13,7 +13,7 @@ harness-agent:
       session: mysql
       knowledge: mysql
       tool: mysql
-      audit: mysql
+      activity: mysql
       telemetry: mysql
       budget-counter: mysql
     schema:
@@ -39,7 +39,7 @@ harness-agent:
       timeout: 5s
       include-failure-reasons: true
     retention:
-      audit: 180d
+      activity: 180d
       telemetry: 30d
       snapshots: 14d
 

@@ -3,7 +3,6 @@ import { ApiClient } from "./api/client";
 import { DEFAULT_IDENTITY } from "./api/identity";
 import type { LocalIdentity } from "./api/types";
 import { getNavigationItems, type RouteId } from "./navigation";
-import { AccessDenied } from "./components/common";
 import { IdentityPanel } from "./views/IdentityPanel";
 import { ChatWorkspace } from "./views/ChatWorkspace";
 import {
@@ -21,7 +20,7 @@ export default function App() {
   const [route, setRoute] = useState<RouteId>("chat");
   const [fileReference, setFileReference] = useState<string>("");
   const api = useMemo(() => new ApiClient({ getIdentity: () => identity }), [identity]);
-  const navigation = getNavigationItems(identity.roles);
+  const navigation = getNavigationItems();
   const active = navigation.find(item => item.id === route);
   const activeRoute = active?.enabled ? route : "chat";
 
@@ -40,7 +39,7 @@ export default function App() {
           <span className="brand-mark">HA</span>
           <div>
             <strong>Personal Agent Workbench</strong>
-            <span>{identity.tenantId} · {identity.userId}</span>
+            <span>{identity.ownerId} · {identity.agentId}</span>
           </div>
         </div>
         <IdentityPanel identity={identity} onIdentityChange={setIdentity} />
@@ -53,7 +52,7 @@ export default function App() {
               className={activeRoute === item.id ? "is-active" : ""}
               type="button"
               disabled={!item.enabled}
-              title={item.enabled ? item.label : `Requires ${item.roles.join(" or ")}`}
+              title={item.label}
               onClick={() => setRoute(item.id)}
             >
               <item.Icon size={18} aria-hidden="true" />
@@ -62,7 +61,7 @@ export default function App() {
           ))}
         </nav>
         <main className="content">
-          {renderRoute(activeRoute, api, identity, active?.enabled === false, fileReference, openFileReference)}
+          {renderRoute(activeRoute, api, identity, fileReference, openFileReference)}
         </main>
       </div>
     </div>
@@ -73,13 +72,9 @@ function renderRoute(
   route: RouteId,
   api: ApiClient,
   identity: LocalIdentity,
-  wasDenied: boolean,
   fileReference: string,
   openFileReference: (uri: string) => void
 ) {
-  if (wasDenied) {
-    return <AccessDenied message="The selected view is not available for the current local role set." />;
-  }
   if (route === "tasks") {
     return <TasksWorkspace api={api} />;
   }

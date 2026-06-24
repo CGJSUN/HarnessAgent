@@ -53,8 +53,8 @@ public class JdbcRuntimeTelemetry implements RuntimeTelemetry, DurableStoreCapab
     @Override
     public TelemetryEvent record(
             TelemetryEventType type,
-            String tenantId,
-            String userId,
+            String ownerScopeId,
+            String ownerId,
             String agentId,
             String component,
             Duration duration,
@@ -63,8 +63,8 @@ public class JdbcRuntimeTelemetry implements RuntimeTelemetry, DurableStoreCapab
                 null,
                 Instant.now(),
                 type,
-                tenantId,
-                userId,
+                ownerScopeId,
+                ownerId,
                 agentId,
                 component,
                 duration == null ? 0 : duration.toMillis(),
@@ -72,15 +72,17 @@ public class JdbcRuntimeTelemetry implements RuntimeTelemetry, DurableStoreCapab
         if (enabled) {
             jdbc.update("""
                     insert into ha_telemetry_events (
-                        id, occurred_at, type, tenant_id, user_id, agent_id, component,
-                        duration_millis, attributes_json
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        id, occurred_at, type, tenant_id, user_id, owner_scope_id, owner_id,
+                        agent_id, component, duration_millis, attributes_json
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     event.id(),
                     Timestamp.from(event.occurredAt()),
                     event.type().name(),
-                    event.tenantId(),
-                    event.userId(),
+                    event.ownerScopeId(),
+                    event.ownerId(),
+                    event.ownerScopeId(),
+                    event.ownerId(),
                     event.agentId(),
                     event.component(),
                     event.durationMillis(),
@@ -90,17 +92,17 @@ public class JdbcRuntimeTelemetry implements RuntimeTelemetry, DurableStoreCapab
     }
 
     @Override
-    public List<TelemetryEvent> list(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("tenantId is required");
+    public List<TelemetryEvent> list(String ownerScopeId) {
+        if (ownerScopeId == null || ownerScopeId.isBlank()) {
+            throw new IllegalArgumentException("owner scope is required");
         }
         return jdbc.query("""
-                select id, occurred_at, type, tenant_id, user_id, agent_id, component,
+                select id, occurred_at, type, owner_scope_id, owner_id, agent_id, component,
                        duration_millis, attributes_json
                 from ha_telemetry_events
-                where tenant_id = ?
+                where owner_scope_id = ?
                 order by occurred_at asc, id asc
-                """, telemetryMapper(), tenantId.trim());
+                """, telemetryMapper(), ownerScopeId.trim());
     }
 
     private RowMapper<TelemetryEvent> telemetryMapper() {
@@ -108,8 +110,8 @@ public class JdbcRuntimeTelemetry implements RuntimeTelemetry, DurableStoreCapab
                 rs.getString("id"),
                 instant(rs, "occurred_at"),
                 TelemetryEventType.valueOf(rs.getString("type")),
-                rs.getString("tenant_id"),
-                rs.getString("user_id"),
+                rs.getString("owner_scope_id"),
+                rs.getString("owner_id"),
                 rs.getString("agent_id"),
                 rs.getString("component"),
                 rs.getLong("duration_millis"),

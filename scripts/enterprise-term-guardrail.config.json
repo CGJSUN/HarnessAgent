@@ -1,0 +1,88 @@
+{
+  "checkedPaths": [
+    "README.md",
+    "AGENTS.md",
+    "docs",
+    "src/main/java",
+    "src/main/resources",
+    "src/test/java",
+    "web/README.md",
+    "web/src",
+    "web/tests"
+  ],
+  "ignoredPathPatterns": [
+    ".git/**",
+    ".harness-agent/**",
+    ".idea/**",
+    "target/**",
+    "web/dist/**",
+    "web/node_modules/**",
+    "web/test-results/**"
+  ],
+  "allowedPathPatterns": [
+    {
+      "pattern": "docs/enterprise-to-personal-migration-inventory.md",
+      "reason": "Migration inventory intentionally names enterprise-era concepts until this change removes or archives them."
+    },
+    {
+      "pattern": "docs/enterprise-term-guardrail.md",
+      "reason": "Executable guardrail inventory intentionally lists blocked terms and current residual counts."
+    },
+    {
+      "pattern": "docs/continue.md",
+      "reason": "Historical handoff document that records previous enterprise-era implementation state."
+    },
+    {
+      "pattern": "docs/durable-persistence-schema.md",
+      "reason": "Schema migration documentation must mention historical database columns while owner-scope migration is planned."
+    },
+    {
+      "pattern": "src/main/resources/db/migration/**",
+      "reason": "Flyway migrations preserve historical SQL column names for existing durable data."
+    },
+    {
+      "pattern": "src/main/resources/db/vendor-migration/**",
+      "reason": "Vendor metadata migrations document historical SQL column names."
+    },
+    {
+      "pattern": "src/main/java/com/harnessagent/api/legacy/**",
+      "reason": "Default-off compatibility adapters may translate enterprise-shaped requests during migration."
+    },
+    {
+      "pattern": "src/main/java/com/harnessagent/diagnostics/**",
+      "reason": "Diagnostics surfaces may expose historical migration state when not part of the default product path."
+    },
+    {
+      "pattern": "src/main/java/com/harnessagent/**/persistence/**",
+      "reason": "Persistence adapters retain historical database column and table names while exposing owner-scope service contracts."
+    },
+    {
+      "pattern": "src/main/java/com/harnessagent/production/infrastructure/**",
+      "reason": "Durable store adapters retain historical SQL columns and one-time legacy state-key reads for migration compatibility."
+    },
+    {
+      "pattern": "web/src/legacy/**",
+      "reason": "Legacy workbench views are hidden migration diagnostics and are not part of the personal Agent default UI."
+    },
+    {
+      "pattern": "src/test/java/com/harnessagent/persistence/**",
+      "reason": "Persistence migration tests verify historical schema compatibility and migration safety."
+    },
+    {
+      "pattern": "src/test/java/com/harnessagent/session/persistence/JdbcSessionStoreTest.java",
+      "reason": "Session store compatibility test verifies migrated schemas still carry historical SQL columns for rollback safety."
+    },
+    {
+      "pattern": "openspec/changes/remove-enterprise-concepts-for-personal-agent/**",
+      "reason": "Current OpenSpec change describes the removal scope and must mention the terms it removes."
+    },
+    {
+      "pattern": "openspec/archive/**",
+      "reason": "Archived OpenSpec material is historical context, not the personal Agent product path."
+    },
+    {
+      "pattern": "scripts/enterprise-term-guardrail.config.json",
+      "reason": "The guardrail configuration must list the blocked terms and allowed historical paths."
+    }
+  ]
+}

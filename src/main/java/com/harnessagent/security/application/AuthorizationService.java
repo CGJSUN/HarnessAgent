@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import com.harnessagent.security.domain.Permission;
 import com.harnessagent.security.domain.ResourceAccessPolicy;
 import com.harnessagent.security.domain.SecurityDecision;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 
 @Service
 public class AuthorizationService {
@@ -14,7 +14,7 @@ public class AuthorizationService {
     private static final Logger log = LoggerFactory.getLogger(AuthorizationService.class);
 
     public SecurityDecision check(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             ResourceAccessPolicy policy,
             Permission permission) {
         if (principal == null) {
@@ -23,41 +23,31 @@ public class AuthorizationService {
         if (policy == null) {
             return SecurityDecision.deny("resource policy is required");
         }
-        if (!principal.tenantId().equals(policy.tenantId())) {
-            return SecurityDecision.deny("cross-tenant access is denied");
+        if (!principal.scopeId().equals(policy.ownerScopeId())) {
+            return SecurityDecision.deny("owner scope access is denied");
         }
         if (!policy.permissions().contains(permission)) {
             return SecurityDecision.deny("permission is not granted");
         }
-        if (principal.hasRole("admin")
-                || policy.allowedUsers().contains(principal.userId())
-                || intersects(policy.allowedRoles(), principal.roles())
-                || intersects(policy.allowedDepartments(), principal.departments())) {
+        if (policy.allowedOwnerIds().contains(principal.ownerId())) {
             return SecurityDecision.allow();
         }
-        return SecurityDecision.deny("RBAC policy denied access");
+        return SecurityDecision.deny("owner policy denied access");
     }
 
     public void require(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             ResourceAccessPolicy policy,
             Permission permission) {
         SecurityDecision decision = check(principal, policy, permission);
         if (!decision.allowed()) {
             log.warn(
-                    "security authorization rejected tenantId={} userHash={} permission={} reason={}",
-                    principal == null ? "" : principal.tenantId(),
-                    principal == null ? "empty" : SafeLogFields.user(principal.userId()),
+                    "security authorization rejected ownerHash={} permission={} reason={}",
+                    principal == null ? "empty" : SafeLogFields.owner(principal.ownerId()),
                     permission,
                     SafeLogFields.reasonCode(decision.reason()));
             throw new IllegalStateException(decision.reason());
         }
     }
 
-    private static boolean intersects(java.util.Set<String> first, java.util.Set<String> second) {
-        if (first.isEmpty() || second.isEmpty()) {
-            return false;
-        }
-        return first.stream().anyMatch(second::contains);
-    }
 }

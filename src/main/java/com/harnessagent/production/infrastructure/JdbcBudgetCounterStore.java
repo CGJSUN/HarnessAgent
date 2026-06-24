@@ -65,9 +65,11 @@ public class JdbcBudgetCounterStore implements BudgetCounterStore, DurableStoreC
         try {
             jdbc.update("""
                     INSERT INTO ha_budget_counters
-                        (counter_key, tenant_id, user_id, agent_id, resource_id, requests, tokens, updated_at)
+                        (counter_key, tenant_id, user_id, owner_scope_id, owner_id,
+                         agent_id, resource_id, requests, tokens, updated_at)
                     VALUES
-                        (:counterKey, :tenantId, :userId, :agentId, :resourceId, 1, :tokens, :updatedAt)
+                        (:counterKey, :ownerScopeId, :ownerId, :ownerScopeId, :ownerId,
+                         :agentId, :resourceId, 1, :tokens, :updatedAt)
                     """, params);
         } catch (DuplicateKeyException ignored) {
             jdbc.update("""
@@ -83,13 +85,13 @@ public class JdbcBudgetCounterStore implements BudgetCounterStore, DurableStoreC
     private static MapSqlParameterSource addDimensions(MapSqlParameterSource params) {
         BudgetCounterDimensions dimensions = BudgetCounterDimensions.from((String) params.getValue("counterKey"));
         return params
-                .addValue("tenantId", dimensions.tenantId())
-                .addValue("userId", dimensions.userId())
+                .addValue("ownerScopeId", dimensions.ownerScopeId())
+                .addValue("ownerId", dimensions.ownerId())
                 .addValue("agentId", dimensions.agentId())
                 .addValue("resourceId", dimensions.resourceId());
     }
 
-    private record BudgetCounterDimensions(String tenantId, String userId, String agentId, String resourceId) {
+    private record BudgetCounterDimensions(String ownerScopeId, String ownerId, String agentId, String resourceId) {
 
         static BudgetCounterDimensions from(String key) {
             if (key == null || key.isBlank()) {

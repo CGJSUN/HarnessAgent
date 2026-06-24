@@ -15,7 +15,7 @@ import com.harnessagent.production.state.AgentStateEntry;
 import com.harnessagent.production.state.AgentStateStore;
 import com.harnessagent.production.state.StateStorePlan;
 import com.harnessagent.persistence.DurableBackendType;
-import com.harnessagent.production.state.TenantStateKeyStrategy;
+import com.harnessagent.production.state.OwnerStateKeyStrategy;
 
 @Repository
 @Profile("production")
@@ -26,12 +26,12 @@ import com.harnessagent.production.state.TenantStateKeyStrategy;
 public class RedisAgentStateStore implements AgentStateStore, DurableStoreCapability {
 
     private final StringRedisTemplate redis;
-    private final TenantStateKeyStrategy keyStrategy;
+    private final OwnerStateKeyStrategy keyStrategy;
     private final ProductionRuntimeProperties properties;
 
     public RedisAgentStateStore(
             StringRedisTemplate redis,
-            TenantStateKeyStrategy keyStrategy,
+            OwnerStateKeyStrategy keyStrategy,
             ProductionRuntimeProperties properties) {
         this.redis = redis;
         this.keyStrategy = keyStrategy;
@@ -52,6 +52,7 @@ public class RedisAgentStateStore implements AgentStateStore, DurableStoreCapabi
     public AgentStateEntry save(RuntimeContextScope context, String scope, String value) {
         AgentStateEntry entry = entry(context, scope, value);
         runRedis("save AgentScope state", () -> redis.opsForValue().set(entry.key(), entry.value()));
+        deleteLegacyIfDifferent(entry.key(), context, scope);
         return entry;
     }
 
@@ -59,34 +60,37 @@ public class RedisAgentStateStore implements AgentStateStore, DurableStoreCapabi
     public Optional<AgentStateEntry> load(RuntimeContextScope context, String scope) {
         String key = keyStrategy.key(context, scope);
         String value = callRedis("load AgentScope state", () -> redis.opsForValue().get(key));
-        if (value == null) {
+        if (value != null) {
+            return Optional.of(entry(context, scope, value));
+        }
+        String legacyKey = keyStrategy.legacyKey(context, scope);
+        String legacyValue = callRedis("load legacy AgentScope state", () -> redis.opsForValue().get(legacyKey));
+        if (legacyValue == null) {
             return Optional.empty();
         }
-        return Optional.of(new AgentStateEntry(
-                key,
-                context.tenantId(),
-                context.userId(),
-                context.agentId(),
-                context.sessionId(),
-                scope,
-                value,
-                Instant.now()));
+        AgentStateEntry migrated = entry(context, scope, legacyValue);
+        runRedis("migrate legacy AgentScope state", () -> redis.opsForValue().set(migrated.key(), migrated.value()));
+        callRedis("delete legacy AgentScope state", () -> redis.delete(legacyKey));
+        return Optional.of(migrated);
     }
 
     @Override
     public boolean delete(RuntimeContextScope context, String scope) {
-        Boolean deleted = callRedis("delete AgentScope state", () -> redis.delete(keyStrategy.key(context, scope)));
-        return Boolean.TRUE.equals(deleted);
+        Boolean deletedOwner = callRedis("delete AgentScope state", () -> redis.delete(keyStrategy.key(context, scope)));
+        Boolean deletedLegacy = callRedis("delete legacy AgentScope state", () -> redis.delete(keyStrategy.legacyKey(context, scope)));
+        return Boolean.TRUE.equals(deletedOwner) || Boolean.TRUE.equals(deletedLegacy);
     }
 
     @Override
     public boolean exists(RuntimeContextScope context, String sessionScope) {
+        migrateLegacySession(context);
         Set<String> keys = keys(context, sessionScope);
         return !keys.isEmpty();
     }
 
     @Override
     public boolean deleteSession(RuntimeContextScope context, String sessionScope) {
+        migrateLegacySession(context);
         Set<String> keys = keys(context, sessionScope);
         if (keys.isEmpty()) {
             return false;
@@ -97,7 +101,8 @@ public class RedisAgentStateStore implements AgentStateStore, DurableStoreCapabi
 
     @Override
     public Set<String> listSessionScopes(RuntimeContextScope context) {
-        String prefix = scopePrefix(context);
+        migrateLegacySession(context);
+        String prefix = keyStrategy.scopePrefix(context);
         Set<String> keys = callRedis("list AgentScope state keys", () -> redis.keys(prefix + "*"));
         if (keys == null || keys.isEmpty()) {
             return Set.of();
@@ -108,7 +113,7 @@ public class RedisAgentStateStore implements AgentStateStore, DurableStoreCapabi
     }
 
     private Set<String> keys(RuntimeContextScope context, String sessionScope) {
-        String prefix = keyStrategy.key(context, sessionScopePrefix(sessionScope));
+        String prefix = keyStrategy.sessionScopePrefix(context, sessionScope);
         Set<String> keys = callRedis("list AgentScope session state keys", () -> redis.keys(prefix + "*"));
         return keys == null ? Set.of() : keys;
     }
@@ -116,27 +121,44 @@ public class RedisAgentStateStore implements AgentStateStore, DurableStoreCapabi
     private AgentStateEntry entry(RuntimeContextScope context, String scope, String value) {
         return new AgentStateEntry(
                 keyStrategy.key(context, scope),
-                context.tenantId(),
-                context.userId(),
+                context.ownerScopeId(),
+                context.ownerId(),
                 context.agentId(),
                 context.sessionId(),
-                scope,
+                keyStrategy.normalizeScope(scope),
                 value,
                 Instant.now());
     }
 
-    private static String scopePrefix(RuntimeContextScope context) {
-        return String.join(":",
-                "tenant", context.tenantId(),
-                "user", context.userId(),
-                "agent", context.agentId(),
-                "session", context.sessionId(),
-                "scope", "");
+    private void migrateLegacySession(RuntimeContextScope context) {
+        String legacyPrefix = keyStrategy.legacyScopePrefix(context);
+        Set<String> legacyKeys = callRedis("list legacy AgentScope state keys", () -> redis.keys(legacyPrefix + "*"));
+        if (legacyKeys == null || legacyKeys.isEmpty()) {
+            return;
+        }
+        legacyKeys.forEach(legacyKey -> {
+            String value = callRedis("load legacy AgentScope state", () -> redis.opsForValue().get(legacyKey));
+            if (value == null) {
+                return;
+            }
+            String scope = legacyKey.substring(legacyPrefix.length());
+            String ownerKey = keyStrategy.key(context, scope);
+            String ownerValue = callRedis("load AgentScope state", () -> redis.opsForValue().get(ownerKey));
+            if (ownerValue != null) {
+                callRedis("delete legacy AgentScope state", () -> redis.delete(legacyKey));
+                return;
+            }
+            AgentStateEntry migrated = entry(context, scope, value);
+            runRedis("migrate legacy AgentScope state", () -> redis.opsForValue().set(migrated.key(), migrated.value()));
+            callRedis("delete legacy AgentScope state", () -> redis.delete(legacyKey));
+        });
     }
 
-    private static String sessionScopePrefix(String sessionScope) {
-        String scope = sessionScope == null || sessionScope.isBlank() ? "default" : sessionScope.trim();
-        return scope.endsWith(":") ? scope : scope + ":";
+    private void deleteLegacyIfDifferent(String ownerKey, RuntimeContextScope context, String scope) {
+        String legacyKey = keyStrategy.legacyKey(context, scope);
+        if (!ownerKey.equals(legacyKey)) {
+            callRedis("delete legacy AgentScope state", () -> redis.delete(legacyKey));
+        }
     }
 
     private static void runRedis(String operation, Runnable runnable) {

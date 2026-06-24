@@ -7,5 +7,5 @@ public record AgentToolDefinition(
         String childAgentId,
         String inputContract,
         String outputContract,
-        Set<String> requiredRoles) {
+        Set<String> allowedOwnerIds) {
 }

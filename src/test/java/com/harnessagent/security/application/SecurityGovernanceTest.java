@@ -10,93 +10,62 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import com.harnessagent.security.application.AuthorizationService;
 import com.harnessagent.security.application.DataPermissionService;
-import com.harnessagent.security.application.EnterpriseIdentityService;
 import com.harnessagent.security.application.PromptInjectionGuard;
-import com.harnessagent.security.application.SecurityAuditService;
+import com.harnessagent.security.application.SecurityActivityService;
 import com.harnessagent.security.application.SensitiveDataRedactor;
-import com.harnessagent.security.application.SkillGovernanceService;
-import com.harnessagent.security.domain.IdentityAssertion;
 import com.harnessagent.security.domain.IdentityProviderType;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.security.domain.Permission;
 import com.harnessagent.security.domain.ProtectedResource;
 import com.harnessagent.security.domain.ResourceAccessPolicy;
 import com.harnessagent.security.domain.ResourceType;
-import com.harnessagent.security.domain.SecurityPrincipal;
-import com.harnessagent.security.domain.SkillStatus;
-import com.harnessagent.security.domain.SkillVersion;
-import com.harnessagent.security.persistence.InMemorySecurityAuditStore;
+import com.harnessagent.security.persistence.InMemorySecurityActivityStore;
 import com.harnessagent.security.persistence.SecretStore;
-import com.harnessagent.security.persistence.SecurityAuditRecord;
-import com.harnessagent.security.persistence.SecurityAuditStore;
+import com.harnessagent.security.persistence.SecurityActivityRecord;
+import com.harnessagent.security.persistence.SecurityActivityStore;
 
 class SecurityGovernanceTest {
 
-    private final EnterpriseIdentityService identityService = new EnterpriseIdentityService();
     private final AuthorizationService authorizationService = new AuthorizationService();
     private final DataPermissionService dataPermissionService = new DataPermissionService(authorizationService);
     private final PromptInjectionGuard promptInjectionGuard = new PromptInjectionGuard();
     private final SensitiveDataRedactor redactor = new SensitiveDataRedactor();
-    private final SecurityAuditService auditService = new SecurityAuditService(redactor, authorizationService);
-    private final SkillGovernanceService skillGovernanceService = new SkillGovernanceService();
+    private final SecurityActivityService activityService = new SecurityActivityService(redactor, authorizationService);
 
     @Test
-    void authenticatesApprovedEnterpriseIdentityProvider() {
-        SecurityPrincipal principal = identityService.authenticate(new IdentityAssertion(
-                "tenant-a",
-                "user-a",
-                IdentityProviderType.LARK,
-                Set.of("employee"),
-                Set.of("finance"),
-                true));
-
-        assertThat(principal.providerType()).isEqualTo(IdentityProviderType.LARK);
-        assertThat(principal.roles()).contains("employee");
-        assertThatThrownBy(() -> identityService.authenticate(new IdentityAssertion(
-                "tenant-a",
-                "user-a",
-                IdentityProviderType.LARK,
-                Set.of(),
-                Set.of(),
-                false))).isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void enforcesRbacForAdminOperations() {
-        SecurityPrincipal employee = principal("tenant-a", "user-a", Set.of("employee"), Set.of());
-        SecurityPrincipal admin = principal("tenant-a", "admin-a", Set.of("admin"), Set.of());
-        ResourceAccessPolicy policy = ResourceAccessPolicy.adminOnly(
-                "tenant-a",
-                ResourceType.ADMIN_OPERATION,
+    void allowsOnlyExplicitOwnerPolicy() {
+        OwnerPrincipal owner = principal("personal", "owner-a", Set.of(), Set.of());
+        OwnerPrincipal otherOwner = principal("personal", "owner-b", Set.of(), Set.of());
+        OwnerPrincipal legacyOwnerSettings = principal("personal", "owner-settings-a", Set.of("owner-settings"), Set.of());
+        ResourceAccessPolicy policy = ResourceAccessPolicy.ownerOnly(
+                "personal",
+                "owner-a",
+                ResourceType.OWNER_OPERATION,
                 Permission.WRITE);
 
-        assertThat(authorizationService.check(employee, policy, Permission.WRITE).allowed()).isFalse();
-        assertThat(authorizationService.check(admin, policy, Permission.WRITE).allowed()).isTrue();
+        assertThat(authorizationService.check(owner, policy, Permission.WRITE).allowed()).isTrue();
+        assertThat(authorizationService.check(otherOwner, policy, Permission.WRITE).allowed()).isFalse();
+        assertThat(authorizationService.check(legacyOwnerSettings, policy, Permission.WRITE).allowed()).isFalse();
     }
 
     @Test
-    void filtersDataConsistentlyAcrossResourceTypes() {
-        SecurityPrincipal principal = principal("tenant-a", "user-a", Set.of("employee"), Set.of("finance"));
+    void filtersDataByOwnerGrantAcrossResourceTypes() {
+        OwnerPrincipal principal = principal("personal", "owner-a", Set.of(), Set.of());
         List<ProtectedResource> resources = List.of(
                 new ProtectedResource("knowledge-1", "薪酬制度", new ResourceAccessPolicy(
                         ResourceType.KNOWLEDGE_SOURCE,
-                        "tenant-a",
-                        Set.of(),
-                        Set.of(),
-                        Set.of("finance"),
+                        "personal",
+                        Set.of("owner-a"),
                         Set.of(Permission.READ))),
                 new ProtectedResource("tool-output-1", "客户数据", new ResourceAccessPolicy(
                         ResourceType.TOOL,
-                        "tenant-a",
+                        "personal",
                         Set.of(),
-                        Set.of(),
-                        Set.of("sales"),
                         Set.of(Permission.READ))),
-                new ProtectedResource("audit-1", "外部租户审计", new ResourceAccessPolicy(
-                        ResourceType.AUDIT,
-                        "tenant-b",
-                        Set.of("user-a"),
-                        Set.of(),
-                        Set.of(),
+                new ProtectedResource("activity-1", "external owner activity", new ResourceAccessPolicy(
+                        ResourceType.ACTIVITY,
+                        "other-scope",
+                        Set.of("owner-a"),
                         Set.of(Permission.READ))));
 
         assertThat(dataPermissionService.filterVisible(principal, resources, Permission.READ))
@@ -133,84 +102,52 @@ class SecurityGovernanceTest {
     }
 
     @Test
-    void storesHighRiskAuditRecordsAndRestrictsSearch() {
-        SecurityPrincipal actor = principal("tenant-a", "user-a", Set.of("employee"), Set.of());
-        SecurityPrincipal auditor = principal("tenant-a", "auditor-a", Set.of("auditor"), Set.of());
-        SecurityPrincipal employee = principal("tenant-a", "employee-a", Set.of("employee"), Set.of());
-        ResourceAccessPolicy auditPolicy = new ResourceAccessPolicy(
-                ResourceType.AUDIT,
-                "tenant-a",
-                Set.of(),
-                Set.of("auditor"),
-                Set.of(),
-                Set.of(Permission.SEARCH_AUDIT));
+    void storesHighRiskActivityRecordsAndRestrictsSearch() {
+        OwnerPrincipal actor = principal("personal", "owner-a", Set.of(), Set.of());
+        OwnerPrincipal activityor = principal("personal", "activityor-a", Set.of(), Set.of());
+        OwnerPrincipal employee = principal("personal", "employee-a", Set.of(), Set.of());
+        ResourceAccessPolicy activityPolicy = ResourceAccessPolicy.ownerOnly(
+                "personal",
+                "activityor-a",
+                ResourceType.ACTIVITY,
+                Permission.SEARCH_ACTIVITY);
 
-        auditService.record(actor, ResourceType.TOOL, "tool-1", "HIGH_RISK_CONFIRMED",
+        activityService.record(actor, ResourceType.TOOL, "tool-1", "HIGH_RISK_CONFIRMED",
                 Map.of("email", "person@example.com", "token", "secret-token"));
 
-        assertThat(auditService.search(auditor, "tenant-a", auditPolicy)).hasSize(1);
-        assertThatThrownBy(() -> auditService.search(employee, "tenant-a", auditPolicy))
+        assertThat(activityService.search(activityor, "personal", activityPolicy)).hasSize(1);
+        assertThatThrownBy(() -> activityService.search(employee, "personal", activityPolicy))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(auditService.search(auditor, "tenant-a", auditPolicy).get(0).sanitizedDetails())
+        assertThat(activityService.search(activityor, "personal", activityPolicy).get(0).sanitizedDetails())
                 .containsEntry("token", "[REDACTED]");
     }
 
     @Test
-    void sharesSecurityAuditRecordsThroughAuditStore() {
-        SecurityAuditStore store = new InMemorySecurityAuditStore();
-        SecurityAuditService writer = new SecurityAuditService(redactor, authorizationService, store);
-        SecurityAuditService reader = new SecurityAuditService(redactor, authorizationService, store);
-        SecurityPrincipal actor = principal("tenant-a", "user-a", Set.of("employee"), Set.of());
-        SecurityPrincipal auditor = principal("tenant-a", "auditor-a", Set.of("auditor"), Set.of());
-        ResourceAccessPolicy auditPolicy = new ResourceAccessPolicy(
-                ResourceType.AUDIT,
-                "tenant-a",
-                Set.of(),
-                Set.of("auditor"),
-                Set.of(),
-                Set.of(Permission.SEARCH_AUDIT));
+    void sharesSecurityActivityRecordsThroughActivityStore() {
+        SecurityActivityStore store = new InMemorySecurityActivityStore();
+        SecurityActivityService writer = new SecurityActivityService(redactor, authorizationService, store);
+        SecurityActivityService reader = new SecurityActivityService(redactor, authorizationService, store);
+        OwnerPrincipal actor = principal("personal", "owner-a", Set.of(), Set.of());
+        OwnerPrincipal viewer = principal("personal", "viewer-a", Set.of(), Set.of());
+        ResourceAccessPolicy activityPolicy = ResourceAccessPolicy.ownerOnly(
+                "personal",
+                "viewer-a",
+                ResourceType.ACTIVITY,
+                Permission.SEARCH_ACTIVITY);
 
         writer.record(actor, ResourceType.TOOL, "tool-1", "HIGH_RISK_CONFIRMED",
                 Map.of("token", "secret-token"));
 
-        assertThat(reader.search(auditor, "tenant-a", auditPolicy))
-                .extracting(SecurityAuditRecord::action)
+        assertThat(reader.search(viewer, "personal", activityPolicy))
+                .extracting(SecurityActivityRecord::action)
                 .containsExactly("HIGH_RISK_CONFIRMED");
     }
 
-    @Test
-    void requiresSkillApprovalAndSupportsRollback() {
-        SkillVersion v1 = skillGovernanceService.propose(
-                "tenant-a",
-                "finance-helper",
-                "1.0.0",
-                "git://skills/finance",
-                "owner-a");
-        SkillVersion v2 = skillGovernanceService.propose(
-                "tenant-a",
-                "finance-helper",
-                "1.1.0",
-                "git://skills/finance",
-                "owner-a");
-
-        assertThatThrownBy(() -> skillGovernanceService.publish(v1.id()))
-                .isInstanceOf(IllegalStateException.class);
-
-        SkillVersion publishedV1 = skillGovernanceService.publish(
-                skillGovernanceService.approve(v1.id(), "reviewer-a").id());
-        SkillVersion publishedV2 = skillGovernanceService.publish(
-                skillGovernanceService.approve(v2.id(), "reviewer-a").id());
-        SkillVersion rolledBack = skillGovernanceService.rollback(publishedV2.id(), publishedV1.id());
-
-        assertThat(rolledBack.id()).isEqualTo(v1.id());
-        assertThat(rolledBack.status()).isEqualTo(SkillStatus.PUBLISHED);
-    }
-
-    private static SecurityPrincipal principal(
-            String tenantId,
-            String userId,
-            Set<String> roles,
-            Set<String> departments) {
-        return new SecurityPrincipal(tenantId, userId, IdentityProviderType.INTERNAL, roles, departments);
+    private static OwnerPrincipal principal(
+            String ownerScopeId,
+            String ownerId,
+            Set<String> ignoredOwnerHints,
+            Set<String> ignoredGroupHints) {
+        return new OwnerPrincipal(ownerScopeId, ownerId, IdentityProviderType.INTERNAL);
     }
 }

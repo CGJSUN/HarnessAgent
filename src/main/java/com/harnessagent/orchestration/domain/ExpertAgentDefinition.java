@@ -7,12 +7,12 @@ import java.util.stream.Collectors;
 
 public record ExpertAgentDefinition(
         String id,
-        String tenantId,
+        String ownerScopeId,
         String name,
         String purpose,
         String inputContract,
         String outputContract,
-        Set<String> requiredRoles,
+        Set<String> allowedOwnerIds,
         Set<String> allowedTools,
         Set<String> allowedSkills,
         Set<String> allowedKnowledgeSources,
@@ -25,12 +25,12 @@ public record ExpertAgentDefinition(
 
     public ExpertAgentDefinition {
         id = id == null || id.isBlank() ? UUID.randomUUID().toString() : id;
-        tenantId = require(tenantId, "tenantId");
+        ownerScopeId = require(ownerScopeId, "ownerScopeId");
         name = require(name, "name");
         purpose = require(purpose, "purpose");
         inputContract = inputContract == null ? "" : inputContract.trim();
         outputContract = outputContract == null ? "" : outputContract.trim();
-        requiredRoles = safeSet(requiredRoles);
+        allowedOwnerIds = safeSet(allowedOwnerIds);
         allowedTools = safeSet(allowedTools);
         allowedSkills = safeSet(allowedSkills);
         allowedKnowledgeSources = safeSet(allowedKnowledgeSources);
@@ -44,12 +44,12 @@ public record ExpertAgentDefinition(
 
     public ExpertAgentDefinition(
             String id,
-            String tenantId,
+            String ownerScopeId,
             String name,
             String purpose,
             String inputContract,
             String outputContract,
-            Set<String> requiredRoles,
+            Set<String> allowedOwnerIds,
             Set<String> allowedTools,
             Set<String> allowedKnowledgeSources,
             String ownerId,
@@ -59,12 +59,12 @@ public record ExpertAgentDefinition(
             Instant updatedAt) {
         this(
                 id,
-                tenantId,
+                ownerScopeId,
                 name,
                 purpose,
                 inputContract,
                 outputContract,
-                requiredRoles,
+                allowedOwnerIds,
                 allowedTools,
                 Set.of(),
                 allowedKnowledgeSources,

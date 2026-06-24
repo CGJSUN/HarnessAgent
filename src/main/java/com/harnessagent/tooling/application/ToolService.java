@@ -29,6 +29,7 @@ import com.harnessagent.production.sandbox.SandboxExecutorRegistry;
 import com.harnessagent.production.telemetry.RuntimeTelemetry;
 import com.harnessagent.production.infrastructure.RuntimeTimeoutGuard;
 import com.harnessagent.production.telemetry.TelemetryEventType;
+import com.harnessagent.runtime.OwnerScope;
 import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.security.application.PromptInjectionGuard;
 import com.harnessagent.security.application.SafeLogFields;
@@ -41,7 +42,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import com.harnessagent.tooling.audit.ToolAuditRecord;
+import com.harnessagent.tooling.activity.ToolActivityRecord;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolExecutionStatus;
 import com.harnessagent.tooling.domain.ToolConfirmationAction;
@@ -137,7 +138,7 @@ public class ToolService {
         Instant now = Instant.now();
         return registerTool(new ToolDefinition(
                 null,
-                registration.tenantId(),
+                registration.ownerScopeId(),
                 registration.name(),
                 registration.description(),
                 registration.ownerSystem(),
@@ -150,7 +151,7 @@ public class ToolService {
                 registration.parameterSchema(),
                 registration.outputSchema(),
                 registration.permissionPolicy(),
-                registration.auditPolicy(),
+                registration.activityPolicy(),
                 registration.workloadType(),
                 now,
                 now));
@@ -163,8 +164,8 @@ public class ToolService {
         return store.saveTool(definition);
     }
 
-    public List<ToolDefinition> listTools(String tenantId) {
-        return store.listTools(tenantId);
+    public List<ToolDefinition> listTools(String ownerScopeId) {
+        return store.listTools(ownerScopeId);
     }
 
     public ToolDefinition setEnabled(String toolId, boolean enabled) {
@@ -179,11 +180,10 @@ public class ToolService {
         if (found.isEmpty()) {
             ToolExecutionResult result = ToolExecutionResult.denied(command.toolId(), "Unknown tool.");
             log.warn(
-                    "tool unknown tenantId={} agentId={} toolId={} userHash={} sessionHash={}",
-                    command.tenantId(),
+                    "tool unknown ownerHash={} agentId={} toolId={} sessionHash={}",
+                    SafeLogFields.owner(command.ownerId()),
                     command.agentId(),
                     command.toolId(),
-                    SafeLogFields.user(command.userId()),
                     SafeLogFields.session(command.sessionId()));
             auditUnknown(command, result, startedAt);
             recordToolTelemetry(command, "", result, startedAt);
@@ -195,22 +195,18 @@ public class ToolService {
         Map<String, Object> executionParameters = PlanModeService.stripPlanModeParameter(command.parameters());
         ToolExecutionCommand effectiveCommand = planMode
                 ? new ToolExecutionCommand(
-                        command.tenantId(),
-                        command.userId(),
+                        command.ownerScopeId(),
+                        command.ownerId(),
                         command.agentId(),
                         command.sessionId(),
                         command.toolId(),
                         executionParameters,
-                        command.departments(),
-                        command.roles(),
                         command.confirmed(),
-                        command.approvalId(),
-                        command.reviewerId(),
                         command.idempotencyKey())
                 : command;
         ToolExecutionResult planModeRejection = planMode ? planModeRejection(effectiveCommand, tool) : null;
         if (planModeRejection != null) {
-            audit(effectiveCommand, tool, planModeRejection, startedAt, planModeRejection.message());
+            recordActivity(effectiveCommand, tool, planModeRejection, startedAt, planModeRejection.message());
             recordToolTelemetry(effectiveCommand, tool.name(), planModeRejection, startedAt);
             return planModeRejection;
         }
@@ -218,14 +214,13 @@ public class ToolService {
         ToolExecutionResult rejected = preflight(effectiveCommand, tool);
         if (rejected != null) {
             log.warn(
-                    "tool preflight rejected tenantId={} agentId={} toolId={} userHash={} sessionHash={} reason={}",
-                    effectiveCommand.tenantId(),
+                    "tool preflight rejected ownerHash={} agentId={} toolId={} sessionHash={} reason={}",
+                    SafeLogFields.owner(effectiveCommand.ownerId()),
                     effectiveCommand.agentId(),
                     tool.id(),
-                    SafeLogFields.user(effectiveCommand.userId()),
                     SafeLogFields.session(effectiveCommand.sessionId()),
                     SafeLogFields.reasonCode(rejected.message()));
-            audit(effectiveCommand, tool, rejected, startedAt, rejected.message());
+            recordActivity(effectiveCommand, tool, rejected, startedAt, rejected.message());
             recordToolTelemetry(effectiveCommand, tool.name(), rejected, startedAt);
             return rejected;
         }
@@ -238,27 +233,25 @@ public class ToolService {
                 if (!previous.get().parameterFingerprint().equals(parameterFingerprint)) {
                     ToolExecutionResult conflict = ToolExecutionResult.idempotencyConflict(tool.id());
                     log.warn(
-                            "tool idempotency conflict tenantId={} agentId={} toolId={} userHash={} sessionHash={} idempotencyHash={}",
-                            effectiveCommand.tenantId(),
+                            "tool idempotency conflict ownerHash={} agentId={} toolId={} sessionHash={} idempotencyHash={}",
+                            SafeLogFields.owner(effectiveCommand.ownerId()),
                             effectiveCommand.agentId(),
                             tool.id(),
-                            SafeLogFields.user(effectiveCommand.userId()),
                             SafeLogFields.session(effectiveCommand.sessionId()),
                             SafeLogFields.idempotency(effectiveCommand.idempotencyKey()));
-                    audit(effectiveCommand, tool, conflict, startedAt, conflict.message());
+                    recordActivity(effectiveCommand, tool, conflict, startedAt, conflict.message());
                     recordToolTelemetry(effectiveCommand, tool.name(), conflict, startedAt);
                     return conflict;
                 }
                 ToolExecutionResult duplicate = ToolExecutionResult.duplicate(tool.id(), previous.get().result());
                 log.info(
-                        "tool idempotency reused tenantId={} agentId={} toolId={} userHash={} sessionHash={} idempotencyHash={}",
-                        effectiveCommand.tenantId(),
+                        "tool idempotency reused ownerHash={} agentId={} toolId={} sessionHash={} idempotencyHash={}",
+                        SafeLogFields.owner(effectiveCommand.ownerId()),
                         effectiveCommand.agentId(),
                         tool.id(),
-                        SafeLogFields.user(effectiveCommand.userId()),
                         SafeLogFields.session(effectiveCommand.sessionId()),
                         SafeLogFields.idempotency(effectiveCommand.idempotencyKey()));
-                audit(effectiveCommand, tool, duplicate, startedAt, duplicate.message());
+                recordActivity(effectiveCommand, tool, duplicate, startedAt, duplicate.message());
                 recordToolTelemetry(effectiveCommand, tool.name(), duplicate, startedAt);
                 return duplicate;
             }
@@ -268,7 +261,7 @@ public class ToolService {
         if (sandboxWorkload.isPresent()) {
             ToolExecutionResult approvalRejection = approvalRejection(effectiveCommand, tool, parameterFingerprint);
             if (approvalRejection != null) {
-                audit(effectiveCommand, tool, approvalRejection, startedAt, approvalRejection.message());
+                recordActivity(effectiveCommand, tool, approvalRejection, startedAt, approvalRejection.message());
                 recordToolTelemetry(effectiveCommand, tool.name(), approvalRejection, startedAt);
                 return approvalRejection;
             }
@@ -286,15 +279,14 @@ public class ToolService {
                             "parameters", sanitizeInput(tool, effectiveCommand.parameters())));
             ToolExecutionResult result = ToolExecutionResult.pending(tool.id(), pending.operationSummary());
             log.info(
-                    "tool sandbox pending tenantId={} agentId={} toolId={} workloadType={} userHash={} sessionHash={} idempotencyHash={}",
-                    effectiveCommand.tenantId(),
+                    "tool sandbox pending ownerHash={} agentId={} toolId={} workloadType={} sessionHash={} idempotencyHash={}",
+                    SafeLogFields.owner(effectiveCommand.ownerId()),
                     effectiveCommand.agentId(),
                     tool.id(),
                     sandboxWorkload.get(),
-                    SafeLogFields.user(effectiveCommand.userId()),
                     SafeLogFields.session(effectiveCommand.sessionId()),
                     SafeLogFields.idempotency(effectiveCommand.idempotencyKey()));
-            audit(effectiveCommand, tool, result, startedAt, result.message());
+            recordActivity(effectiveCommand, tool, result, startedAt, result.message());
             recordToolTelemetry(effectiveCommand, tool.name(), result, startedAt);
             return result;
         }
@@ -302,7 +294,7 @@ public class ToolService {
         if (tool.riskLevel() == ToolRiskLevel.HIGH_RISK) {
             ToolExecutionResult approvalRejection = approvalRejection(effectiveCommand, tool, parameterFingerprint);
             if (approvalRejection != null) {
-                audit(effectiveCommand, tool, approvalRejection, startedAt, approvalRejection.message());
+                recordActivity(effectiveCommand, tool, approvalRejection, startedAt, approvalRejection.message());
                 recordToolTelemetry(effectiveCommand, tool.name(), approvalRejection, startedAt);
                 return approvalRejection;
             }
@@ -319,14 +311,13 @@ public class ToolService {
                             "parameters", sanitizeInput(tool, effectiveCommand.parameters())));
             ToolExecutionResult result = ToolExecutionResult.pending(tool.id(), pending.operationSummary());
             log.info(
-                    "tool high_risk pending tenantId={} agentId={} toolId={} userHash={} sessionHash={} idempotencyHash={}",
-                    effectiveCommand.tenantId(),
+                    "tool high_risk pending ownerHash={} agentId={} toolId={} sessionHash={} idempotencyHash={}",
+                    SafeLogFields.owner(effectiveCommand.ownerId()),
                     effectiveCommand.agentId(),
                     tool.id(),
-                    SafeLogFields.user(effectiveCommand.userId()),
                     SafeLogFields.session(effectiveCommand.sessionId()),
                     SafeLogFields.idempotency(effectiveCommand.idempotencyKey()));
-            audit(effectiveCommand, tool, result, startedAt, result.message());
+            recordActivity(effectiveCommand, tool, result, startedAt, result.message());
             recordToolTelemetry(effectiveCommand, tool.name(), result, startedAt);
             return result;
         }
@@ -338,27 +329,25 @@ public class ToolService {
                 if (!previous.get().parameterFingerprint().equals(parameterFingerprint)) {
                     ToolExecutionResult conflict = ToolExecutionResult.idempotencyConflict(tool.id());
                     log.warn(
-                            "tool idempotency conflict tenantId={} agentId={} toolId={} userHash={} sessionHash={} idempotencyHash={}",
-                            effectiveCommand.tenantId(),
+                            "tool idempotency conflict ownerHash={} agentId={} toolId={} sessionHash={} idempotencyHash={}",
+                            SafeLogFields.owner(effectiveCommand.ownerId()),
                             effectiveCommand.agentId(),
                             tool.id(),
-                            SafeLogFields.user(effectiveCommand.userId()),
                             SafeLogFields.session(effectiveCommand.sessionId()),
                             SafeLogFields.idempotency(effectiveCommand.idempotencyKey()));
-                    audit(effectiveCommand, tool, conflict, startedAt, conflict.message());
+                    recordActivity(effectiveCommand, tool, conflict, startedAt, conflict.message());
                     recordToolTelemetry(effectiveCommand, tool.name(), conflict, startedAt);
                     return conflict;
                 }
                 ToolExecutionResult duplicate = ToolExecutionResult.duplicate(tool.id(), previous.get().result());
                 log.info(
-                        "tool idempotency reused tenantId={} agentId={} toolId={} userHash={} sessionHash={} idempotencyHash={}",
-                        effectiveCommand.tenantId(),
+                        "tool idempotency reused ownerHash={} agentId={} toolId={} sessionHash={} idempotencyHash={}",
+                        SafeLogFields.owner(effectiveCommand.ownerId()),
                         effectiveCommand.agentId(),
                         tool.id(),
-                        SafeLogFields.user(effectiveCommand.userId()),
                         SafeLogFields.session(effectiveCommand.sessionId()),
                         SafeLogFields.idempotency(effectiveCommand.idempotencyKey()));
-                audit(effectiveCommand, tool, duplicate, startedAt, duplicate.message());
+                recordActivity(effectiveCommand, tool, duplicate, startedAt, duplicate.message());
                 recordToolTelemetry(effectiveCommand, tool.name(), duplicate, startedAt);
                 return duplicate;
             }
@@ -370,15 +359,14 @@ public class ToolService {
         }
         if (result.status() == ToolExecutionStatus.FAILED) {
             log.warn(
-                    "tool execution failed tenantId={} agentId={} toolId={} userHash={} sessionHash={} reason={}",
-                    effectiveCommand.tenantId(),
+                    "tool execution failed ownerHash={} agentId={} toolId={} sessionHash={} reason={}",
+                    SafeLogFields.owner(effectiveCommand.ownerId()),
                     effectiveCommand.agentId(),
                     tool.id(),
-                    SafeLogFields.user(effectiveCommand.userId()),
                     SafeLogFields.session(effectiveCommand.sessionId()),
                     SafeLogFields.reasonCode(result.message()));
         }
-        audit(effectiveCommand, tool, result, startedAt, result.status() == ToolExecutionStatus.FAILED ? result.message() : "");
+        recordActivity(effectiveCommand, tool, result, startedAt, result.status() == ToolExecutionStatus.FAILED ? result.message() : "");
         recordToolTelemetry(effectiveCommand, tool.name(), result, startedAt);
         return result;
     }
@@ -389,11 +377,10 @@ public class ToolService {
         if (found.isEmpty()) {
             ToolExecutionResult result = ToolExecutionResult.denied(command.toolId(), "Unknown tool.");
             log.warn(
-                    "tool reject unknown tenantId={} agentId={} toolId={} userHash={} sessionHash={}",
-                    command.tenantId(),
+                    "tool reject unknown ownerHash={} agentId={} toolId={} sessionHash={}",
+                    SafeLogFields.owner(command.ownerId()),
                     command.agentId(),
                     command.toolId(),
-                    SafeLogFields.user(command.userId()),
                     SafeLogFields.session(command.sessionId()));
             auditUnknown(command, result, startedAt);
             recordToolTelemetry(command, "", result, startedAt);
@@ -407,7 +394,7 @@ public class ToolService {
         String rejectionReason = rejected.message();
         latestPendingConfirmation(command, tool)
                 .ifPresent(pending -> store.savePendingConfirmation(pending.rejected(rejectionReason)));
-        audit(command, tool, rejected, startedAt, rejected.message());
+        recordActivity(command, tool, rejected, startedAt, rejected.message());
         recordToolTelemetry(command, tool.name(), rejected, startedAt);
         return rejected;
     }
@@ -436,17 +423,13 @@ public class ToolService {
                 ? pending.parameters()
                 : request.parameters();
         ToolExecutionCommand command = new ToolExecutionCommand(
-                pending.tenantId(),
-                pending.userId(),
+                pending.ownerScopeId(),
+                pending.ownerId(),
                 pending.agentId(),
                 pending.sessionId(),
                 pending.toolId(),
                 parameters,
-                request.departments(),
-                request.roles(),
                 true,
-                request.approvalId(),
-                request.reviewerId(),
                 pending.idempotencyKey());
         if (effectiveAction == ToolConfirmationAction.REJECT) {
             return reject(command);
@@ -454,21 +437,21 @@ public class ToolService {
         return execute(command);
     }
 
-    public List<ToolAuditRecord> listAudit(String tenantId) {
-        return store.listAudit(tenantId);
+    public List<ToolActivityRecord> listActivity(String ownerScopeId) {
+        return store.listActivity(ownerScopeId);
     }
 
     public List<ToolPendingConfirmation> listPendingConfirmations(
-            String tenantId,
-            String userId,
+            String ownerScopeId,
+            String ownerId,
             String agentId,
             String sessionId) {
-        return store.listPendingConfirmations(tenantId, userId, agentId, sessionId);
+        return store.listPendingConfirmations(ownerScopeId, ownerId, agentId, sessionId);
     }
 
     private static boolean matchesPendingContext(ToolPendingConfirmation pending, ToolExecutionCommand request) {
-        return pending.tenantId().equals(request.tenantId())
-                && pending.userId().equals(request.userId())
+        return pending.ownerScopeId().equals(request.ownerScopeId())
+                && pending.ownerId().equals(request.ownerId())
                 && pending.agentId().equals(request.agentId())
                 && pending.sessionId().equals(request.sessionId());
     }
@@ -477,11 +460,11 @@ public class ToolService {
         if (!tool.enabled()) {
             return ToolExecutionResult.denied(tool.id(), "Tool is disabled.");
         }
-        if (!tool.tenantId().equals(command.tenantId())) {
-            return ToolExecutionResult.denied(tool.id(), "Tool does not belong to this tenant.");
+        if (!tool.ownerScopeId().equals(command.ownerScopeId())) {
+            return ToolExecutionResult.denied(tool.id(), "Tool does not belong to this owner scope.");
         }
         if (!tool.permissionPolicy().permits(command.principal())) {
-            return ToolExecutionResult.denied(tool.id(), "User, tenant, Agent, or role is not allowed to use this tool.");
+            return ToolExecutionResult.denied(tool.id(), "Owner or Agent is not allowed to use this tool.");
         }
         Optional<String> parameterError = tool.parameterSchema().validate(command.parameters());
         if (parameterError.isPresent()) {
@@ -512,13 +495,8 @@ public class ToolService {
         if (pathParameters.isEmpty()) {
             return Optional.empty();
         }
-        RuntimeContextScope context = new RuntimeContextScope(
-                command.tenantId(),
-                command.userId(),
-                command.agentId(),
-                command.sessionId(),
-                command.userId(),
-                command.sessionId());
+        RuntimeContextScope context = RuntimeContextScope.fromOwnerScope(
+                new OwnerScope(command.ownerId(), command.agentId(), command.sessionId()));
         for (String parameter : pathParameters) {
             Object value = command.parameters().get(parameter);
             Optional<String> error = validateWorkspacePathValue(context, value);
@@ -597,13 +575,8 @@ public class ToolService {
             ToolDefinition tool,
             ToolExecutionCommand command,
             AgentWorkloadType workloadType) {
-        RuntimeContextScope context = new RuntimeContextScope(
-                command.tenantId(),
-                command.userId(),
-                command.agentId(),
-                command.sessionId(),
-                command.userId(),
-                command.sessionId());
+        RuntimeContextScope context = RuntimeContextScope.fromOwnerScope(
+                new OwnerScope(command.ownerId(), command.agentId(), command.sessionId()));
         PersonalWorkspaceLayout layout = personalWorkspaceService.initialize(context);
         SandboxExecutionPolicy policy = sandboxPolicyService.policyFor(
                 context,
@@ -767,8 +740,8 @@ public class ToolService {
             String parameterFingerprint,
             Map<String, Object> operationSummary) {
         ToolPendingConfirmation pending = ToolPendingConfirmation.pending(
-                command.tenantId(),
-                command.userId(),
+                command.ownerScopeId(),
+                command.ownerId(),
                 command.agentId(),
                 command.sessionId(),
                 tool,
@@ -785,14 +758,13 @@ public class ToolService {
     }
 
     private static boolean approvalRequested(ToolExecutionCommand command) {
-        return command.confirmed()
-                || (command.approvalId() != null && command.reviewerId() != null);
+        return command.confirmed();
     }
 
     private Optional<ToolPendingConfirmation> latestPendingConfirmation(ToolExecutionCommand command, ToolDefinition tool) {
         return store.listPendingConfirmations(
-                        command.tenantId(),
-                        command.userId(),
+                        command.ownerScopeId(),
+                        command.ownerId(),
                         command.agentId(),
                         command.sessionId()).stream()
                 .filter(pending -> pending.toolId().equals(tool.id()))
@@ -803,8 +775,8 @@ public class ToolService {
         if (!tool.mutating()) {
             return null;
         }
-        return command.tenantId()
-                + ":" + command.userId()
+        return command.ownerScopeId()
+                + ":" + command.ownerId()
                 + ":" + command.agentId()
                 + ":" + command.sessionId()
                 + ":" + tool.id()
@@ -812,11 +784,11 @@ public class ToolService {
     }
 
     private void auditUnknown(ToolExecutionCommand command, ToolExecutionResult result, Instant startedAt) {
-        store.saveAudit(new ToolAuditRecord(
+        store.saveActivity(new ToolActivityRecord(
                 null,
                 Instant.now(),
-                command.tenantId(),
-                command.userId(),
+                command.ownerScopeId(),
+                command.ownerId(),
                 command.agentId(),
                 command.sessionId(),
                 command.toolId(),
@@ -827,26 +799,26 @@ public class ToolService {
                 sanitize(command.parameters(), COMMON_SENSITIVE_KEYS),
                 sanitize(result.output(), COMMON_SENSITIVE_KEYS),
                 durationMillis(startedAt),
-                command.approvalId(),
-                command.reviewerId(),
+                null,
+                null,
                 command.idempotencyKey(),
                 result.message()));
     }
 
-    private void audit(
+    private void recordActivity(
             ToolExecutionCommand command,
             ToolDefinition tool,
             ToolExecutionResult result,
             Instant startedAt,
             String failureReason) {
-        if (!tool.auditPolicy().enabled()) {
+        if (!tool.activityPolicy().enabled()) {
             return;
         }
-        store.saveAudit(new ToolAuditRecord(
+        store.saveActivity(new ToolActivityRecord(
                 null,
                 Instant.now(),
-                command.tenantId(),
-                command.userId(),
+                command.ownerScopeId(),
+                command.ownerId(),
                 command.agentId(),
                 command.sessionId(),
                 tool.id(),
@@ -857,8 +829,8 @@ public class ToolService {
                 sanitizeInput(tool, command.parameters()),
                 sanitizeOutput(tool, result.output()),
                 durationMillis(startedAt),
-                command.approvalId(),
-                command.reviewerId(),
+                null,
+                null,
                 command.idempotencyKey(),
                 failureReason));
     }
@@ -866,14 +838,14 @@ public class ToolService {
     private Map<String, Object> sanitizeInput(ToolDefinition tool, Map<String, Object> input) {
         Set<String> sensitive = union(
                 tool.parameterSchema().sensitiveParameters(),
-                tool.auditPolicy().sensitiveParameters());
+                tool.activityPolicy().sensitiveParameters());
         return sanitize(input, sensitive);
     }
 
     private Map<String, Object> sanitizeOutput(ToolDefinition tool, Map<String, Object> output) {
         Set<String> sensitive = union(
-                union(tool.parameterSchema().sensitiveParameters(), tool.auditPolicy().sensitiveParameters()),
-                tool.auditPolicy().sensitiveResultFields());
+                union(tool.parameterSchema().sensitiveParameters(), tool.activityPolicy().sensitiveParameters()),
+                tool.activityPolicy().sensitiveResultFields());
         return sanitizeOutputValue(sanitize(output, sensitive));
     }
 
@@ -983,8 +955,8 @@ public class ToolService {
             Instant startedAt) {
         telemetry.record(
                 TelemetryEventType.TOOL,
-                command.tenantId(),
-                command.userId(),
+                command.ownerScopeId(),
+                command.ownerId(),
                 command.agentId(),
                 "tool-service",
                 Duration.between(startedAt, Instant.now()),

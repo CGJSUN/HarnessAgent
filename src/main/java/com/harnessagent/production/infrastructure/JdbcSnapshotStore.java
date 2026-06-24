@@ -41,7 +41,7 @@ public class JdbcSnapshotStore implements SnapshotStore, DurableStoreCapability 
         MapSqlParameterSource metadataParams = metadataParams(stored);
         int updated = jdbc.update("""
                 update ha_snapshot_metadata
-                set tenant_id = :tenantId,
+                set tenant_id = :ownerScopeId,
                     agent_id = :agentId,
                     session_id = :sessionId,
                     task_id = :taskId,
@@ -55,7 +55,7 @@ public class JdbcSnapshotStore implements SnapshotStore, DurableStoreCapability 
                     insert into ha_snapshot_metadata (
                         id, tenant_id, agent_id, session_id, task_id, created_at, backend_type, location
                     ) values (
-                        :id, :tenantId, :agentId, :sessionId, :taskId, :createdAt, :backendType, :location
+                        :id, :ownerScopeId, :agentId, :sessionId, :taskId, :createdAt, :backendType, :location
                     )
                     """, metadataParams);
         }
@@ -96,16 +96,16 @@ public class JdbcSnapshotStore implements SnapshotStore, DurableStoreCapability 
     }
 
     @Override
-    public List<SnapshotMetadata> list(String tenantId, String agentId, String sessionId) {
+    public List<SnapshotMetadata> list(String ownerScopeId, String agentId, String sessionId) {
         return jdbc.query("""
                 select id, tenant_id, agent_id, session_id, task_id, created_at, backend_type, location
                 from ha_snapshot_metadata
-                where tenant_id = :tenantId
+                where tenant_id = :ownerScopeId
                   and agent_id = :agentId
                   and session_id = :sessionId
                 order by created_at asc, id asc
                 """, Map.of(
-                        "tenantId", tenantId,
+                        "ownerScopeId", ownerScopeId,
                         "agentId", agentId,
                         "sessionId", sessionId),
                 metadataMapper());
@@ -125,7 +125,7 @@ public class JdbcSnapshotStore implements SnapshotStore, DurableStoreCapability 
     private static MapSqlParameterSource metadataParams(SnapshotMetadata metadata) {
         return new MapSqlParameterSource()
                 .addValue("id", metadata.id())
-                .addValue("tenantId", metadata.tenantId())
+                .addValue("ownerScopeId", metadata.ownerScopeId())
                 .addValue("agentId", metadata.agentId())
                 .addValue("sessionId", metadata.sessionId())
                 .addValue("taskId", metadata.taskId())

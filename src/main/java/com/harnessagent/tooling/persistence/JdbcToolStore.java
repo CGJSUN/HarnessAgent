@@ -20,8 +20,8 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 import com.harnessagent.production.config.AgentWorkloadType;
 import com.harnessagent.tooling.application.ToolService;
-import com.harnessagent.tooling.audit.ToolAuditRecord;
-import com.harnessagent.tooling.domain.ToolAuditPolicy;
+import com.harnessagent.tooling.activity.ToolActivityRecord;
+import com.harnessagent.tooling.domain.ToolActivityPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolExecutionStatus;
 import com.harnessagent.tooling.domain.ToolOutputSchema;
@@ -57,13 +57,14 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
     public ToolDefinition saveTool(ToolDefinition definition) {
         int updated = jdbc.update("""
                 update ha_tool_definitions
-                set tenant_id = ?, name = ?, description = ?, owner_system = ?, owner_id = ?, source_type = ?,
+                set tenant_id = ?, owner_scope_id = ?, name = ?, description = ?, owner_system = ?, owner_id = ?, source_type = ?,
                     source_ref = ?, risk_level = ?, mutating = ?, enabled = ?, parameter_schema_json = ?,
-                    output_schema_json = ?, permission_policy_json = ?, audit_policy_json = ?, workload_type = ?,
+                    output_schema_json = ?, permission_policy_json = ?, activity_policy_json = ?, workload_type = ?,
                     created_at = ?, updated_at = ?
                 where id = ?
                 """,
-                definition.tenantId(),
+                definition.ownerScopeId(),
+                definition.ownerScopeId(),
                 definition.name(),
                 definition.description(),
                 definition.ownerSystem(),
@@ -76,7 +77,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
                 JsonColumn.write(objectMapper, definition.parameterSchema()),
                 JsonColumn.write(objectMapper, definition.outputSchema()),
                 JsonColumn.write(objectMapper, definition.permissionPolicy()),
-                JsonColumn.write(objectMapper, definition.auditPolicy()),
+                JsonColumn.write(objectMapper, definition.activityPolicy()),
                 definition.workloadType().name(),
                 timestamp(definition.createdAt()),
                 timestamp(definition.updatedAt()),
@@ -84,13 +85,14 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
         if (updated == 0) {
             jdbc.update("""
                     insert into ha_tool_definitions (
-                        id, tenant_id, name, description, owner_system, owner_id, source_type, source_ref,
+                        id, tenant_id, owner_scope_id, name, description, owner_system, owner_id, source_type, source_ref,
                         risk_level, mutating, enabled, parameter_schema_json, output_schema_json,
-                        permission_policy_json, audit_policy_json, workload_type, created_at, updated_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        permission_policy_json, activity_policy_json, workload_type, created_at, updated_at
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     definition.id(),
-                    definition.tenantId(),
+                    definition.ownerScopeId(),
+                    definition.ownerScopeId(),
                     definition.name(),
                     definition.description(),
                     definition.ownerSystem(),
@@ -103,7 +105,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
                     JsonColumn.write(objectMapper, definition.parameterSchema()),
                     JsonColumn.write(objectMapper, definition.outputSchema()),
                     JsonColumn.write(objectMapper, definition.permissionPolicy()),
-                    JsonColumn.write(objectMapper, definition.auditPolicy()),
+                    JsonColumn.write(objectMapper, definition.activityPolicy()),
                     definition.workloadType().name(),
                     timestamp(definition.createdAt()),
                     timestamp(definition.updatedAt()));
@@ -118,9 +120,9 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
         }
         try {
             return Optional.ofNullable(jdbc.queryForObject("""
-                    select id, tenant_id, name, description, owner_system, owner_id, source_type, source_ref,
+                    select id, owner_scope_id, name, description, owner_system, owner_id, source_type, source_ref,
                            risk_level, mutating, enabled, parameter_schema_json, output_schema_json,
-                           permission_policy_json, audit_policy_json, workload_type, created_at, updated_at
+                           permission_policy_json, activity_policy_json, workload_type, created_at, updated_at
                     from ha_tool_definitions
                     where id = ?
                     """, toolMapper(), toolId.trim()));
@@ -130,30 +132,33 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
     }
 
     @Override
-    public List<ToolDefinition> listTools(String tenantId) {
+    public List<ToolDefinition> listTools(String ownerScopeId) {
         return jdbc.query("""
-                select id, tenant_id, name, description, owner_system, owner_id, source_type, source_ref,
+                select id, owner_scope_id, name, description, owner_system, owner_id, source_type, source_ref,
                        risk_level, mutating, enabled, parameter_schema_json, output_schema_json,
-                       permission_policy_json, audit_policy_json, workload_type, created_at, updated_at
+                       permission_policy_json, activity_policy_json, workload_type, created_at, updated_at
                 from ha_tool_definitions
-                where tenant_id = ?
+                where owner_scope_id = ?
                 order by name asc, id asc
-                """, toolMapper(), tenantId);
+                """, toolMapper(), ownerScopeId);
     }
 
     @Override
-    public void saveAudit(ToolAuditRecord record) {
+    public void saveActivity(ToolActivityRecord record) {
         jdbc.update("""
-                insert into ha_tool_audit_records (
-                    id, occurred_at, tenant_id, user_id, agent_id, session_id, tool_id, tool_name, source_type,
+                insert into ha_tool_activity_records (
+                    id, occurred_at, tenant_id, user_id, owner_scope_id, owner_id,
+                    agent_id, session_id, tool_id, tool_name, source_type,
                     risk_level, status, sanitized_input_json, sanitized_output_json, duration_millis,
                     approval_id, reviewer_id, idempotency_key, failure_reason
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 record.id(),
                 timestamp(record.occurredAt()),
-                record.tenantId(),
-                record.userId(),
+                record.ownerScopeId(),
+                record.ownerId(),
+                record.ownerScopeId(),
+                record.ownerId(),
                 record.agentId(),
                 record.sessionId(),
                 record.toolId(),
@@ -171,15 +176,15 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
     }
 
     @Override
-    public List<ToolAuditRecord> listAudit(String tenantId) {
+    public List<ToolActivityRecord> listActivity(String ownerScopeId) {
         return jdbc.query("""
-                select id, occurred_at, tenant_id, user_id, agent_id, session_id, tool_id, tool_name, source_type,
+                select id, occurred_at, owner_scope_id, owner_id, agent_id, session_id, tool_id, tool_name, source_type,
                        risk_level, status, sanitized_input_json, sanitized_output_json, duration_millis,
                        approval_id, reviewer_id, idempotency_key, failure_reason
-                from ha_tool_audit_records
-                where tenant_id = ?
+                from ha_tool_activity_records
+                where owner_scope_id = ?
                 order by occurred_at asc, id asc
-                """, auditMapper(), tenantId);
+                """, auditMapper(), ownerScopeId);
     }
 
     @Override
@@ -241,15 +246,18 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
         if (updated == 0) {
             jdbc.update("""
                     insert into ha_tool_pending_confirmations (
-                        confirmation_id, tenant_id, user_id, agent_id, session_id, tool_id, tool_name,
+                        confirmation_id, tenant_id, user_id, owner_scope_id, owner_id,
+                        agent_id, session_id, tool_id, tool_name,
                         source_type, risk_level, status, parameters_json, sanitized_input_json,
                         operation_summary_json, parameter_fingerprint, idempotency_key, created_at,
                         updated_at, expires_at, decided_at, decision_reason
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     confirmation.confirmationId(),
-                    confirmation.tenantId(),
-                    confirmation.userId(),
+                    confirmation.ownerScopeId(),
+                    confirmation.ownerId(),
+                    confirmation.ownerScopeId(),
+                    confirmation.ownerId(),
                     confirmation.agentId(),
                     confirmation.sessionId(),
                     confirmation.toolId(),
@@ -278,7 +286,7 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
         }
         try {
             return Optional.ofNullable(jdbc.queryForObject("""
-                    select confirmation_id, tenant_id, user_id, agent_id, session_id, tool_id, tool_name,
+                    select confirmation_id, owner_scope_id, owner_id, agent_id, session_id, tool_id, tool_name,
                            source_type, risk_level, status, parameters_json, sanitized_input_json,
                            operation_summary_json, parameter_fingerprint, idempotency_key, created_at,
                            updated_at, expires_at, decided_at, decision_reason
@@ -309,25 +317,25 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
 
     @Override
     public List<ToolPendingConfirmation> listPendingConfirmations(
-            String tenantId,
-            String userId,
+            String ownerScopeId,
+            String ownerId,
             String agentId,
             String sessionId) {
         return jdbc.query("""
-                select confirmation_id, tenant_id, user_id, agent_id, session_id, tool_id, tool_name,
+                select confirmation_id, owner_scope_id, owner_id, agent_id, session_id, tool_id, tool_name,
                        source_type, risk_level, status, parameters_json, sanitized_input_json,
                        operation_summary_json, parameter_fingerprint, idempotency_key, created_at,
                        updated_at, expires_at, decided_at, decision_reason
                 from ha_tool_pending_confirmations
-                where tenant_id = ? and user_id = ? and agent_id = ? and session_id = ? and status = 'PENDING'
+                where owner_scope_id = ? and owner_id = ? and agent_id = ? and session_id = ? and status = 'PENDING'
                 order by created_at asc, confirmation_id asc
-                """, pendingConfirmationMapper(), tenantId, userId, agentId, sessionId);
+                """, pendingConfirmationMapper(), ownerScopeId, ownerId, agentId, sessionId);
     }
 
     private RowMapper<ToolDefinition> toolMapper() {
         return (rs, rowNum) -> new ToolDefinition(
                 rs.getString("id"),
-                rs.getString("tenant_id"),
+                rs.getString("owner_scope_id"),
                 rs.getString("name"),
                 rs.getString("description"),
                 rs.getString("owner_system"),
@@ -340,18 +348,18 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
                 JsonColumn.read(objectMapper, rs.getString("parameter_schema_json"), ToolParameterSchema.class),
                 JsonColumn.read(objectMapper, rs.getString("output_schema_json"), ToolOutputSchema.class),
                 JsonColumn.read(objectMapper, rs.getString("permission_policy_json"), ToolPermissionPolicy.class),
-                JsonColumn.read(objectMapper, rs.getString("audit_policy_json"), ToolAuditPolicy.class),
+                JsonColumn.read(objectMapper, rs.getString("activity_policy_json"), ToolActivityPolicy.class),
                 AgentWorkloadType.valueOf(rs.getString("workload_type")),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"));
     }
 
-    private RowMapper<ToolAuditRecord> auditMapper() {
-        return (rs, rowNum) -> new ToolAuditRecord(
+    private RowMapper<ToolActivityRecord> auditMapper() {
+        return (rs, rowNum) -> new ToolActivityRecord(
                 rs.getString("id"),
                 instant(rs, "occurred_at"),
-                rs.getString("tenant_id"),
-                rs.getString("user_id"),
+                rs.getString("owner_scope_id"),
+                rs.getString("owner_id"),
                 rs.getString("agent_id"),
                 rs.getString("session_id"),
                 rs.getString("tool_id"),
@@ -378,8 +386,8 @@ public class JdbcToolStore implements ToolStore, DurableStoreCapability {
     private RowMapper<ToolPendingConfirmation> pendingConfirmationMapper() {
         return (rs, rowNum) -> new ToolPendingConfirmation(
                 rs.getString("confirmation_id"),
-                rs.getString("tenant_id"),
-                rs.getString("user_id"),
+                rs.getString("owner_scope_id"),
+                rs.getString("owner_id"),
                 rs.getString("agent_id"),
                 rs.getString("session_id"),
                 rs.getString("tool_id"),

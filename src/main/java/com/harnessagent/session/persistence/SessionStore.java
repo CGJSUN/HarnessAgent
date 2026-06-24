@@ -9,7 +9,7 @@ public interface SessionStore {
 
     void appendMessage(RuntimeContextScope context, ChatMessage message);
 
-    List<SessionSummary> listSessions(String tenantId, String userId, String agentId);
+    List<SessionSummary> listSessions(String ownerScopeId, String ownerId, String agentId);
 
     List<ChatMessage> listMessages(RuntimeContextScope context);
 

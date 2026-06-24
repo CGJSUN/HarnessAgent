@@ -53,19 +53,20 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     public KnowledgeSource saveSource(KnowledgeSource source) {
         int updated = jdbc.update("""
                 update ha_knowledge_sources
-                set owner_id = ?, agent_id = ?, title = ?, version = ?, visibility = ?, allowed_departments_json = ?,
-                    allowed_roles_json = ?, allowed_users_json = ?, update_policy = ?, source_type = ?,
+                set tenant_id = ?, owner_scope_id = ?, owner_id = ?, agent_id = ?, title = ?, version = ?,
+                    visibility = ?, allowed_owners_json = ?, allowed_users_json = ?, update_policy = ?, source_type = ?,
                     source_uri = ?, index_status = ?, indexed_at = ?, status = ?, created_at = ?, updated_at = ?
                 where id = ?
                 """,
+                source.ownerScopeId(),
+                source.ownerScopeId(),
                 source.ownerId(),
                 source.agentId(),
                 source.title(),
                 source.version(),
                 source.visibility().name(),
-                JsonColumn.write(objectMapper, source.allowedDepartments()),
-                JsonColumn.write(objectMapper, source.allowedRoles()),
-                JsonColumn.write(objectMapper, source.allowedUsers()),
+                JsonColumn.write(objectMapper, source.allowedOwnerIds()),
+                JsonColumn.write(objectMapper, source.allowedOwnerIds()),
                 source.updatePolicy(),
                 source.sourceType().name(),
                 source.sourceUri(),
@@ -78,21 +79,24 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         if (updated == 0) {
             jdbc.update("""
                     insert into ha_knowledge_sources (
-                        id, tenant_id, owner_id, agent_id, title, version, visibility, allowed_departments_json,
-                        allowed_roles_json, allowed_users_json, update_policy, source_type, source_uri,
+                        id, tenant_id, owner_scope_id, owner_id, agent_id, title, version, visibility,
+                        allowed_owners_json, allowed_departments_json, allowed_roles_json, allowed_users_json,
+                        update_policy, source_type, source_uri,
                         index_status, indexed_at, status, created_at, updated_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     source.id(),
-                    source.tenantId(),
+                    source.ownerScopeId(),
+                    source.ownerScopeId(),
                     source.ownerId(),
                     source.agentId(),
                     source.title(),
                     source.version(),
                     source.visibility().name(),
-                    JsonColumn.write(objectMapper, source.allowedDepartments()),
-                    JsonColumn.write(objectMapper, source.allowedRoles()),
-                    JsonColumn.write(objectMapper, source.allowedUsers()),
+                    JsonColumn.write(objectMapper, source.allowedOwnerIds()),
+                    "[]",
+                    "[]",
+                    JsonColumn.write(objectMapper, source.allowedOwnerIds()),
                     source.updatePolicy(),
                     source.sourceType().name(),
                     source.sourceUri(),
@@ -112,8 +116,8 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         }
         try {
             return Optional.ofNullable(jdbc.queryForObject("""
-                    select id, tenant_id, owner_id, agent_id, title, version, visibility, allowed_departments_json,
-                           allowed_roles_json, allowed_users_json, update_policy, source_type, source_uri,
+                    select id, owner_scope_id, owner_id, agent_id, title, version, visibility, allowed_owners_json,
+                           update_policy, source_type, source_uri,
                            index_status, indexed_at, status, created_at, updated_at
                     from ha_knowledge_sources
                     where id = ?
@@ -124,15 +128,15 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     }
 
     @Override
-    public List<KnowledgeSource> listSources(String tenantId) {
+    public List<KnowledgeSource> listSources(String ownerScopeId) {
         return jdbc.query("""
-                select id, tenant_id, owner_id, agent_id, title, version, visibility, allowed_departments_json,
-                       allowed_roles_json, allowed_users_json, update_policy, source_type, source_uri,
+                select id, owner_scope_id, owner_id, agent_id, title, version, visibility, allowed_owners_json,
+                       update_policy, source_type, source_uri,
                        index_status, indexed_at, status, created_at, updated_at
                 from ha_knowledge_sources
-                where tenant_id = ?
+                where owner_scope_id = ?
                 order by updated_at desc, id asc
-                """, sourceMapper(), tenantId);
+                """, sourceMapper(), ownerScopeId);
     }
 
     @Override
@@ -143,13 +147,15 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         }
         jdbc.batchUpdate("""
                 insert into ha_knowledge_chunks (
-                    id, source_id, tenant_id, title, version, chunk_index, content, tokens_json, source_type, source_uri
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, source_id, tenant_id, owner_scope_id, title, version, chunk_index, content,
+                    tokens_json, source_type, source_uri
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, chunks.stream()
                 .map(chunk -> new Object[] {
                         chunk.id(),
                         chunk.sourceId(),
-                        chunk.tenantId(),
+                        chunk.ownerScopeId(),
+                        chunk.ownerScopeId(),
                         chunk.title(),
                         chunk.version(),
                         chunk.chunkIndex(),
@@ -162,13 +168,13 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     }
 
     @Override
-    public List<KnowledgeChunk> listChunks(String tenantId) {
+    public List<KnowledgeChunk> listChunks(String ownerScopeId) {
         return jdbc.query("""
-                select id, source_id, tenant_id, title, version, chunk_index, content, tokens_json, source_type, source_uri
+                select id, source_id, owner_scope_id, title, version, chunk_index, content, tokens_json, source_type, source_uri
                 from ha_knowledge_chunks
-                where tenant_id = ?
+                where owner_scope_id = ?
                 order by source_id asc, chunk_index asc
-                """, chunkMapper(), tenantId);
+                """, chunkMapper(), ownerScopeId);
     }
 
     @Override
@@ -180,12 +186,14 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     public void recordMetric(RagMetric metric) {
         jdbc.update("""
                 insert into ha_rag_metrics (
-                    tenant_id, user_id, query_text, hit, candidate_count, permitted_count,
+                    tenant_id, user_id, owner_scope_id, owner_id, query_text, hit, candidate_count, permitted_count,
                     failure_reason, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                metric.tenantId(),
-                metric.userId(),
+                metric.ownerScopeId(),
+                metric.ownerId(),
+                metric.ownerScopeId(),
+                metric.ownerId(),
                 metric.query(),
                 metric.hit(),
                 metric.candidateCount(),
@@ -195,24 +203,26 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     }
 
     @Override
-    public List<RagMetric> listMetrics(String tenantId) {
+    public List<RagMetric> listMetrics(String ownerScopeId) {
         return jdbc.query("""
-                select tenant_id, user_id, query_text, hit, candidate_count, permitted_count, failure_reason, created_at
+                select owner_scope_id, owner_id, query_text, hit, candidate_count, permitted_count, failure_reason, created_at
                 from ha_rag_metrics
-                where tenant_id = ?
+                where owner_scope_id = ?
                 order by created_at asc, id asc
-                """, metricMapper(), tenantId);
+                """, metricMapper(), ownerScopeId);
     }
 
     @Override
     public void recordFeedback(RagFeedback feedback) {
         jdbc.update("""
                 insert into ha_rag_feedback (
-                    tenant_id, user_id, query_text, helpful, comment_text, created_at
-                ) values (?, ?, ?, ?, ?, ?)
+                    tenant_id, user_id, owner_scope_id, owner_id, query_text, helpful, comment_text, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                feedback.tenantId(),
-                feedback.userId(),
+                feedback.ownerScopeId(),
+                feedback.ownerId(),
+                feedback.ownerScopeId(),
+                feedback.ownerId(),
                 feedback.query(),
                 feedback.helpful(),
                 feedback.comment(),
@@ -220,24 +230,25 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     }
 
     @Override
-    public List<RagFeedback> listFeedback(String tenantId) {
+    public List<RagFeedback> listFeedback(String ownerScopeId) {
         return jdbc.query("""
-                select tenant_id, user_id, query_text, helpful, comment_text, created_at
+                select owner_scope_id, owner_id, query_text, helpful, comment_text, created_at
                 from ha_rag_feedback
-                where tenant_id = ?
+                where owner_scope_id = ?
                 order by created_at asc, id asc
-                """, feedbackMapper(), tenantId);
+                """, feedbackMapper(), ownerScopeId);
     }
 
     @Override
     public PersonalMemoryRecord saveMemory(PersonalMemoryRecord memory) {
         int updated = jdbc.update("""
                 update ha_personal_memories
-                set tenant_id = ?, owner_id = ?, agent_id = ?, session_id = ?, layer_name = ?,
+                set tenant_id = ?, owner_scope_id = ?, owner_id = ?, agent_id = ?, session_id = ?, layer_name = ?,
                     title = ?, content = ?, status = ?, source_id = ?, created_at = ?, updated_at = ?
                 where id = ?
                 """,
-                memory.tenantId(),
+                memory.ownerScopeId(),
+                memory.ownerScopeId(),
                 memory.ownerId(),
                 memory.agentId(),
                 memory.sessionId(),
@@ -252,12 +263,13 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         if (updated == 0) {
             jdbc.update("""
                     insert into ha_personal_memories (
-                        id, tenant_id, owner_id, agent_id, session_id, layer_name, title, content,
+                        id, tenant_id, owner_scope_id, owner_id, agent_id, session_id, layer_name, title, content,
                         status, source_id, created_at, updated_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     memory.id(),
-                    memory.tenantId(),
+                    memory.ownerScopeId(),
+                    memory.ownerScopeId(),
                     memory.ownerId(),
                     memory.agentId(),
                     memory.sessionId(),
@@ -279,7 +291,7 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         }
         try {
             return Optional.ofNullable(jdbc.queryForObject("""
-                    select id, tenant_id, owner_id, agent_id, session_id, layer_name, title, content,
+                    select id, owner_scope_id, owner_id, agent_id, session_id, layer_name, title, content,
                            status, source_id, created_at, updated_at
                     from ha_personal_memories
                     where id = ?
@@ -290,28 +302,26 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     }
 
     @Override
-    public List<PersonalMemoryRecord> listMemories(String tenantId, String ownerId, String agentId) {
+    public List<PersonalMemoryRecord> listMemories(String ownerScopeId, String ownerId, String agentId) {
         return jdbc.query("""
-                select id, tenant_id, owner_id, agent_id, session_id, layer_name, title, content,
+                select id, owner_scope_id, owner_id, agent_id, session_id, layer_name, title, content,
                        status, source_id, created_at, updated_at
                 from ha_personal_memories
-                where tenant_id = ? and owner_id = ? and agent_id = ?
+                where owner_scope_id = ? and owner_id = ? and agent_id = ?
                 order by updated_at desc, id asc
-                """, memoryMapper(), tenantId, ownerId, agentId);
+                """, memoryMapper(), ownerScopeId, ownerId, agentId);
     }
 
     private RowMapper<KnowledgeSource> sourceMapper() {
         return (rs, rowNum) -> new KnowledgeSource(
                 rs.getString("id"),
-                rs.getString("tenant_id"),
+                rs.getString("owner_scope_id"),
                 rs.getString("owner_id"),
                 rs.getString("agent_id"),
                 rs.getString("title"),
                 rs.getString("version"),
                 KnowledgeVisibility.valueOf(rs.getString("visibility")),
-                JsonColumn.read(objectMapper, rs.getString("allowed_departments_json"), STRING_SET, Set.of()),
-                JsonColumn.read(objectMapper, rs.getString("allowed_roles_json"), STRING_SET, Set.of()),
-                JsonColumn.read(objectMapper, rs.getString("allowed_users_json"), STRING_SET, Set.of()),
+                JsonColumn.read(objectMapper, rs.getString("allowed_owners_json"), STRING_SET, Set.of()),
                 rs.getString("update_policy"),
                 KnowledgeSourceType.valueOf(rs.getString("source_type")),
                 rs.getString("source_uri"),
@@ -326,7 +336,7 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
         return (rs, rowNum) -> new KnowledgeChunk(
                 rs.getString("id"),
                 rs.getString("source_id"),
-                rs.getString("tenant_id"),
+                rs.getString("owner_scope_id"),
                 rs.getString("title"),
                 rs.getString("version"),
                 rs.getInt("chunk_index"),
@@ -338,8 +348,8 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
 
     private static RowMapper<RagMetric> metricMapper() {
         return (rs, rowNum) -> new RagMetric(
-                rs.getString("tenant_id"),
-                rs.getString("user_id"),
+                rs.getString("owner_scope_id"),
+                rs.getString("owner_id"),
                 rs.getString("query_text"),
                 rs.getBoolean("hit"),
                 rs.getInt("candidate_count"),
@@ -350,8 +360,8 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
 
     private static RowMapper<RagFeedback> feedbackMapper() {
         return (rs, rowNum) -> new RagFeedback(
-                rs.getString("tenant_id"),
-                rs.getString("user_id"),
+                rs.getString("owner_scope_id"),
+                rs.getString("owner_id"),
                 rs.getString("query_text"),
                 rs.getBoolean("helpful"),
                 rs.getString("comment_text"),
@@ -361,7 +371,7 @@ public class JdbcKnowledgeStore implements KnowledgeStore, DurableStoreCapabilit
     private static RowMapper<PersonalMemoryRecord> memoryMapper() {
         return (rs, rowNum) -> new PersonalMemoryRecord(
                 rs.getString("id"),
-                rs.getString("tenant_id"),
+                rs.getString("owner_scope_id"),
                 rs.getString("owner_id"),
                 rs.getString("agent_id"),
                 rs.getString("session_id"),

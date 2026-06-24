@@ -26,7 +26,7 @@ harness-agent:
       session: local-json
       knowledge: local-json
       tool: local-json
-      audit: local-json
+      activity: local-json
       telemetry: local-json
       budget-counter: local-json
     snapshot-store:

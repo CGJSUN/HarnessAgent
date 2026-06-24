@@ -43,14 +43,12 @@ class JdbcKnowledgeStoreTest {
 
             KnowledgeSource source = new KnowledgeSource(
                     "source-a",
-                    "tenant-a",
+                    "owner-scope-a",
                     "owner-a",
                     "agent-a",
                     "Handbook",
                     "v1",
                     KnowledgeVisibility.RESTRICTED,
-                    Set.of("finance"),
-                    Set.of("admin"),
                     Set.of("user-a"),
                     "manual",
                     KnowledgeSourceType.LOCAL_FILE,
@@ -62,15 +60,15 @@ class JdbcKnowledgeStoreTest {
                     now.plusSeconds(10));
             writer.saveSource(source);
             writer.saveChunks(source.id(), List.of(
-                    new KnowledgeChunk("chunk-a", source.id(), source.tenantId(), source.title(), source.version(),
+                    new KnowledgeChunk("chunk-a", source.id(), source.ownerScopeId(), source.title(), source.version(),
                             0, "submit invoices within thirty days", Set.of("invoice", "thirty")),
-                    new KnowledgeChunk("chunk-b", source.id(), source.tenantId(), source.title(), source.version(),
+                    new KnowledgeChunk("chunk-b", source.id(), source.ownerScopeId(), source.title(), source.version(),
                             1, "manager approval is required", Set.of("manager", "approval"))));
-            writer.recordMetric(new RagMetric("tenant-a", "user-a", "invoice", true, 2, 1, null, now));
-            writer.recordFeedback(new RagFeedback("tenant-a", "user-a", "invoice", true, "useful", now));
+            writer.recordMetric(new RagMetric("owner-scope-a", "user-a", "invoice", true, 2, 1, null, now));
+            writer.recordFeedback(new RagFeedback("owner-scope-a", "user-a", "invoice", true, "useful", now));
             PersonalMemoryRecord memory = new PersonalMemoryRecord(
                     "memory-a",
-                    "tenant-a",
+                    "owner-scope-a",
                     "owner-a",
                     "agent-a",
                     "session-a",
@@ -85,20 +83,20 @@ class JdbcKnowledgeStoreTest {
 
             assertThat(reader.findSource("source-a")).contains(source);
             assertThat(reader.findSource("source-a")).map(KnowledgeSource::agentId).contains("agent-a");
-            assertThat(reader.listSources("tenant-a")).containsExactly(source);
-            assertThat(reader.listSources("tenant-b")).isEmpty();
-            assertThat(reader.listChunks("tenant-a"))
+            assertThat(reader.listSources("owner-scope-a")).containsExactly(source);
+            assertThat(reader.listSources("owner-scope-b")).isEmpty();
+            assertThat(reader.listChunks("owner-scope-a"))
                     .extracting(KnowledgeChunk::id)
                     .containsExactly("chunk-a", "chunk-b");
-            assertThat(reader.listMetrics("tenant-a"))
+            assertThat(reader.listMetrics("owner-scope-a"))
                     .extracting(RagMetric::query)
                     .containsExactly("invoice");
-            assertThat(reader.listFeedback("tenant-a"))
+            assertThat(reader.listFeedback("owner-scope-a"))
                     .extracting(RagFeedback::comment)
                     .containsExactly("useful");
             assertThat(reader.findMemory("memory-a")).contains(memory);
-            assertThat(reader.listMemories("tenant-a", "owner-a", "agent-a")).containsExactly(memory);
-            assertThat(reader.listMemories("tenant-a", "owner-a", "agent-b")).isEmpty();
+            assertThat(reader.listMemories("owner-scope-a", "owner-a", "agent-a")).containsExactly(memory);
+            assertThat(reader.listMemories("owner-scope-a", "owner-a", "agent-b")).isEmpty();
 
             writer.saveSource(source.withStatus(KnowledgeSourceStatus.DELETED));
             writer.removeChunks(source.id());
@@ -106,7 +104,7 @@ class JdbcKnowledgeStoreTest {
             assertThat(reader.findSource("source-a"))
                     .map(KnowledgeSource::status)
                     .contains(KnowledgeSourceStatus.DELETED);
-            assertThat(reader.listChunks("tenant-a")).isEmpty();
+            assertThat(reader.listChunks("owner-scope-a")).isEmpty();
 
             KnowledgeSource revoked = source.withStatus(KnowledgeSourceStatus.REVOKED);
             writer.saveSource(revoked);

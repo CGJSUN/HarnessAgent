@@ -12,8 +12,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabase;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
-import com.harnessagent.tooling.audit.ToolAuditRecord;
-import com.harnessagent.tooling.domain.ToolAuditPolicy;
+import com.harnessagent.tooling.activity.ToolActivityRecord;
+import com.harnessagent.tooling.domain.ToolActivityPolicy;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import com.harnessagent.tooling.domain.ToolExecutionStatus;
 import com.harnessagent.tooling.domain.ToolOutputSchema;
@@ -29,7 +29,7 @@ import com.harnessagent.tooling.persistence.JdbcToolStore;
 class JdbcToolStoreTest {
 
     @Test
-    void persistsToolsAuditAndIdempotencyAcrossInstances() {
+    void persistsToolsActivityAndIdempotencyAcrossInstances() {
         EmbeddedDatabase database = new EmbeddedDatabaseBuilder()
                 .setType(EmbeddedDatabaseType.H2)
                 .generateUniqueName(true)
@@ -44,10 +44,10 @@ class JdbcToolStoreTest {
             ToolDefinition tool = tool(now);
 
             writer.saveTool(tool);
-            writer.saveAudit(new ToolAuditRecord(
-                    "audit-a",
+            writer.saveActivity(new ToolActivityRecord(
+                    "activity-a",
                     now.plusSeconds(1),
-                    "tenant-a",
+                    "owner-scope-a",
                     "user-a",
                     "agent-a",
                     "session-a",
@@ -64,13 +64,13 @@ class JdbcToolStoreTest {
                     "idem-a",
                     ""));
             ToolExecutionResult firstResult = ToolExecutionResult.success(tool.id(), Map.of("externalId", "E-1"));
-            writer.saveIdempotentResult("tenant-a:tool-a:idem-a", "{ticketId=T-1}", firstResult);
+            writer.saveIdempotentResult("owner-scope-a:tool-a:idem-a", "{ticketId=T-1}", firstResult);
             writer.saveIdempotentResult(
-                    "tenant-a:tool-a:idem-a",
+                    "owner-scope-a:tool-a:idem-a",
                     "{ticketId=T-2}",
                     ToolExecutionResult.success(tool.id(), Map.of("externalId", "E-2")));
             ToolPendingConfirmation pending = ToolPendingConfirmation.pending(
-                    "tenant-a",
+                    "owner-scope-a",
                     "user-a",
                     "agent-a",
                     "session-a",
@@ -86,12 +86,12 @@ class JdbcToolStoreTest {
             assertThat(reader.findTool("tool-a")).get()
                     .extracting(found -> found.outputSchema().outputType())
                     .isEqualTo("application/json");
-            assertThat(reader.listTools("tenant-a")).containsExactly(tool);
-            assertThat(reader.listTools("tenant-b")).isEmpty();
-            assertThat(reader.listAudit("tenant-a"))
-                    .extracting(ToolAuditRecord::id)
-                    .containsExactly("audit-a");
-            assertThat(reader.findIdempotentResult("tenant-a:tool-a:idem-a"))
+            assertThat(reader.listTools("owner-scope-a")).containsExactly(tool);
+            assertThat(reader.listTools("owner-scope-b")).isEmpty();
+            assertThat(reader.listActivity("owner-scope-a"))
+                    .extracting(ToolActivityRecord::id)
+                    .containsExactly("activity-a");
+            assertThat(reader.findIdempotentResult("owner-scope-a:tool-a:idem-a"))
                     .get()
                     .satisfies(record -> {
                         assertThat(record.parameterFingerprint()).isEqualTo("{ticketId=T-1}");
@@ -104,7 +104,7 @@ class JdbcToolStoreTest {
                         assertThat(found.parameters()).containsEntry("status", "approved");
                         assertThat(found.operationSummary()).containsEntry("toolName", tool.name());
                     });
-            assertThat(reader.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a"))
+            assertThat(reader.listPendingConfirmations("owner-scope-a", "user-a", "agent-a", "session-a"))
                     .extracting(ToolPendingConfirmation::confirmationId)
                     .containsExactly(pending.confirmationId());
 
@@ -116,10 +116,10 @@ class JdbcToolStoreTest {
                         assertThat(found.status()).isEqualTo(ToolPendingConfirmationStatus.CONFIRMED);
                         assertThat(found.decisionReason()).isEqualTo("confirmed");
                     });
-            assertThat(reader.listPendingConfirmations("tenant-a", "user-a", "agent-a", "session-a")).isEmpty();
+            assertThat(reader.listPendingConfirmations("owner-scope-a", "user-a", "agent-a", "session-a")).isEmpty();
 
             ToolPendingConfirmation rejectedPending = ToolPendingConfirmation.pending(
-                    "tenant-a",
+                    "owner-scope-a",
                     "user-a",
                     "agent-a",
                     "session-a",
@@ -150,7 +150,7 @@ class JdbcToolStoreTest {
     private static ToolDefinition tool(Instant now) {
         return new ToolDefinition(
                 "tool-a",
-                "tenant-a",
+                "owner-scope-a",
                 "ticket.update",
                 "Update tickets",
                 "ServiceDesk",
@@ -165,8 +165,8 @@ class JdbcToolStoreTest {
                         Set.of("comment"),
                         Map.of("status", Set.of("approved", "rejected")),
                         Set.of("token")),
-                new ToolPermissionPolicy(Set.of("tenant-a"), Set.of("user-a"), Set.of("agent-a"), Set.of(), Set.of()),
-                ToolAuditPolicy.enabled(Set.of("token"), Set.of("email")),
+                new ToolPermissionPolicy(Set.of("user-a"), Set.of("agent-a"), Set.of()),
+                ToolActivityPolicy.enabled(Set.of("token"), Set.of("email")),
                 ToolOutputSchema.structured("application/json", Map.of("type", "object")),
                 now,
                 now);

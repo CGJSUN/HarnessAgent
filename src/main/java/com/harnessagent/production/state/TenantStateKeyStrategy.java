@@ -1,21 +1,22 @@
 package com.harnessagent.production.state;
 
 import com.harnessagent.runtime.RuntimeContextScope;
-import org.springframework.stereotype.Component;
 
-@Component
-public class TenantStateKeyStrategy {
+@Deprecated(forRemoval = true)
+public class TenantStateKeyStrategy extends OwnerStateKeyStrategy {
 
+    @Override
     public String key(RuntimeContextScope context, String isolationScope) {
-        if (context == null) {
-            throw new IllegalArgumentException("context is required");
-        }
-        String scope = isolationScope == null || isolationScope.isBlank() ? "default" : isolationScope.trim();
-        return String.join(":",
-                "tenant", context.tenantId(),
-                "user", context.userId(),
-                "agent", context.agentId(),
-                "session", context.sessionId(),
-                "scope", scope);
+        return legacyKey(context, isolationScope);
+    }
+
+    @Override
+    public String scopePrefix(RuntimeContextScope context) {
+        return legacyScopePrefix(context);
+    }
+
+    @Override
+    public String sessionScopePrefix(RuntimeContextScope context, String sessionScope) {
+        return legacySessionScopePrefix(context, sessionScope);
     }
 }

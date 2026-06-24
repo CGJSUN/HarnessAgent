@@ -69,7 +69,7 @@ public class SandboxExecutionPolicyService {
         Path baseRoot = Path.of(".harness-agent", "personal", "workspaces").normalize();
         Path root = baseRoot
                 .resolve(safePathSegment(context.agentId(), "agentId"))
-                .resolve(safePathSegment(context.userId(), "userId"))
+                .resolve(safePathSegment(context.ownerId(), "userId"))
                 .normalize();
         if (!root.startsWith(baseRoot)) {
             throw new IllegalArgumentException("sandbox workspace path escapes personal workspace root");

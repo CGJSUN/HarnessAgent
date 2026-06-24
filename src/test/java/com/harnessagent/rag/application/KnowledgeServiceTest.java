@@ -18,7 +18,7 @@ import com.harnessagent.rag.domain.KnowledgeSourceType;
 import com.harnessagent.rag.domain.KnowledgeVisibility;
 import com.harnessagent.rag.domain.RagFeedback;
 import com.harnessagent.rag.domain.RagMetric;
-import com.harnessagent.rag.domain.RetrievalPrincipal;
+import com.harnessagent.rag.domain.OwnerRetrievalPrincipal;
 import com.harnessagent.rag.persistence.InMemoryKnowledgeStore;
 import com.harnessagent.rag.retrieval.KnowledgeRetrievalResult;
 
@@ -34,11 +34,11 @@ class KnowledgeServiceTest {
     @Test
     void ingestsDocumentAndReturnsCitations() {
         KnowledgeSource source = service.ingestDocument(new KnowledgeDocumentInput(
-                registration("tenant-a", "owner-a", KnowledgeVisibility.PUBLIC),
+                registration("owner-scope-a", "owner-a", KnowledgeVisibility.PUBLIC),
                 "报销制度要求发票在三十天内提交。"));
 
         KnowledgeRetrievalResult result = service.retrieve(
-                principal("tenant-a", "user-a", Set.of(), Set.of()),
+                principal("owner-scope-a", "user-a"),
                 "发票 三十天",
                 3);
 
@@ -62,15 +62,13 @@ class KnowledgeServiceTest {
                         "2026-06",
                         KnowledgeVisibility.RESTRICTED,
                         Set.of(),
-                        Set.of(),
-                        Set.of(),
                         "manual",
                         KnowledgeSourceType.URL,
                         "https://example.test/travel-plan"),
                 "京都行程第一天安排伏见稻荷和清水寺。"));
 
         KnowledgeRetrievalResult result = service.retrieve(
-                principal("personal", "owner-a", Set.of(), Set.of()),
+                principal("personal", "owner-a"),
                 "京都 清水寺",
                 3);
 
@@ -89,15 +87,25 @@ class KnowledgeServiceTest {
     @Test
     void filtersRetrievalByPermission() {
         service.ingestDocument(new KnowledgeDocumentInput(
-                registration("tenant-a", "owner-a", KnowledgeVisibility.RESTRICTED),
-                "薪酬制度只有财务部门可见。"));
+                new KnowledgeSourceRegistration(
+                        "owner-scope-a",
+                        "owner-a",
+                        "",
+                        "员工制度",
+                        "v1",
+                        KnowledgeVisibility.RESTRICTED,
+                        Set.of("owner-b"),
+                        "manual",
+                        KnowledgeSourceType.INLINE_TEXT,
+                        ""),
+                "薪酬制度只有授权 owner 可见。"));
 
         KnowledgeRetrievalResult denied = service.retrieve(
-                principal("tenant-a", "user-a", Set.of("engineering"), Set.of()),
+                principal("owner-scope-a", "owner-c"),
                 "薪酬制度",
                 3);
         KnowledgeRetrievalResult allowed = service.retrieve(
-                principal("tenant-a", "user-a", Set.of("finance"), Set.of()),
+                principal("owner-scope-a", "owner-b"),
                 "薪酬制度",
                 3);
 
@@ -108,18 +116,18 @@ class KnowledgeServiceTest {
     @Test
     void invalidatesChunksWhenSourceIsDeleted() {
         KnowledgeSource source = service.ingestDocument(new KnowledgeDocumentInput(
-                registration("tenant-a", "owner-a", KnowledgeVisibility.PUBLIC),
+                registration("owner-scope-a", "owner-a", KnowledgeVisibility.PUBLIC),
                 "请假制度要求提前一天提交申请。"));
 
         service.deleteSource(source.id());
 
         KnowledgeRetrievalResult result = service.retrieve(
-                principal("tenant-a", "user-a", Set.of(), Set.of()),
+                principal("owner-scope-a", "user-a"),
                 "请假 提前",
                 3);
 
         assertThat(result.answered()).isFalse();
-        KnowledgeSource deleted = service.listSources("tenant-a").stream()
+        KnowledgeSource deleted = service.listSources("owner-scope-a").stream()
                 .filter(item -> item.id().equals(source.id()))
                 .findFirst()
                 .orElseThrow();
@@ -129,17 +137,17 @@ class KnowledgeServiceTest {
     @Test
     void returnsNoAnswerAndRecordsMetricsWhenEvidenceIsMissing() {
         service.ingestDocument(new KnowledgeDocumentInput(
-                registration("tenant-a", "owner-a", KnowledgeVisibility.PUBLIC),
+                registration("owner-scope-a", "owner-a", KnowledgeVisibility.PUBLIC),
                 "办公用品采购需要直属主管审批。"));
 
         KnowledgeRetrievalResult result = service.retrieve(
-                principal("tenant-a", "user-a", Set.of(), Set.of()),
+                principal("owner-scope-a", "user-a"),
                 "完全无关的问题",
                 3);
 
         assertThat(result.answered()).isFalse();
         assertThat(result.message()).contains("无法从当前可用知识中确定答案");
-        java.util.List<RagMetric> metrics = service.listMetrics("tenant-a");
+        java.util.List<RagMetric> metrics = service.listMetrics("owner-scope-a");
         RagMetric metric = metrics.get(metrics.size() - 1);
         assertThat(metric.hit()).isFalse();
         assertThat(metric.failureReason()).isEqualTo("no_permitted_evidence");
@@ -147,29 +155,29 @@ class KnowledgeServiceTest {
 
     @Test
     void recordsUserFeedback() {
-        service.recordFeedback("tenant-a", "user-a", "发票 三十天", true, "有帮助");
+        service.recordFeedback("owner-scope-a", "user-a", "发票 三十天", true, "有帮助");
 
-        assertThat(service.listFeedback("tenant-a"))
+        assertThat(service.listFeedback("owner-scope-a"))
                 .extracting(RagFeedback::comment)
                 .containsExactly("有帮助");
     }
 
     private static KnowledgeSourceRegistration registration(
-            String tenantId, String ownerId, KnowledgeVisibility visibility) {
+            String ownerScopeId, String ownerId, KnowledgeVisibility visibility) {
         return new KnowledgeSourceRegistration(
-                tenantId,
+                ownerScopeId,
                 ownerId,
+                "",
                 "员工制度",
                 "v1",
                 visibility,
-                Set.of("finance"),
                 Set.of(),
-                Set.of(),
-                "manual");
+                "manual",
+                KnowledgeSourceType.INLINE_TEXT,
+                "");
     }
 
-    private static RetrievalPrincipal principal(
-            String tenantId, String userId, Set<String> departments, Set<String> roles) {
-        return new RetrievalPrincipal(tenantId, userId, departments, roles);
+    private static OwnerRetrievalPrincipal principal(String ownerScopeId, String userId) {
+        return new OwnerRetrievalPrincipal(ownerScopeId, userId, "");
     }
 }

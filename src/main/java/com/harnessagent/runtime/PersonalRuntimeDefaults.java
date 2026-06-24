@@ -2,25 +2,18 @@ package com.harnessagent.runtime;
 
 public final class PersonalRuntimeDefaults {
 
-    public static final String TENANT_ID = "personal";
-    public static final String OWNER_ID = "personal-user";
+    public static final String PERSONAL_SCOPE_ID = "personal";
+    public static final String DEFAULT_OWNER_ID = "personal-user";
 
     private PersonalRuntimeDefaults() {
     }
 
-    public static String tenantId(String tenantId) {
-        return isBlank(tenantId) ? TENANT_ID : tenantId.trim();
+    public static String ownerId(String ownerId) {
+        return isBlank(ownerId) ? DEFAULT_OWNER_ID : ownerId.trim();
     }
 
-    public static String ownerId(String tenantId, String userId) {
-        if (isBlank(tenantId) && isBlank(userId)) {
-            return OWNER_ID;
-        }
-        return userId;
-    }
-
-    public static boolean isPersonalRequest(String tenantId) {
-        return isBlank(tenantId) || TENANT_ID.equals(tenantId.trim());
+    public static String ownerScopeId(String ownerScopeId) {
+        return isBlank(ownerScopeId) ? PERSONAL_SCOPE_ID : ownerScopeId.trim();
     }
 
     private static boolean isBlank(String value) {

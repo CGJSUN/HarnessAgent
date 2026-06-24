@@ -25,7 +25,7 @@ class WorkspaceSnapshotServiceTest {
     void savesAndRestoresWorkspaceSnapshotWithAuthorization() throws Exception {
         InMemorySnapshotStore store = new InMemorySnapshotStore(SnapshotStoreType.JDBC, "memory://snapshots");
         WorkspaceSnapshotService service = new WorkspaceSnapshotService(store);
-        RuntimeContextScope context = context("tenant-a", "agent-a", "session-a");
+        RuntimeContextScope context = context("owner-scope-a", "agent-a", "session-a");
         Path workspace = tempDir.resolve("workspace");
         Files.createDirectories(workspace.resolve("nested"));
         Files.writeString(workspace.resolve("nested/state.txt"), "workspace-state");
@@ -44,10 +44,10 @@ class WorkspaceSnapshotServiceTest {
     }
 
     @Test
-    void rejectsSnapshotRestoreForDifferentTenantAgentOrSession() throws Exception {
+    void rejectsSnapshotRestoreForDifferentOwnerScopeAgentOrSession() throws Exception {
         InMemorySnapshotStore store = new InMemorySnapshotStore(SnapshotStoreType.JDBC, "memory://snapshots");
         WorkspaceSnapshotService service = new WorkspaceSnapshotService(store);
-        RuntimeContextScope owner = context("tenant-a", "agent-a", "session-a");
+        RuntimeContextScope owner = context("owner-scope-a", "agent-a", "session-a");
         Path workspace = tempDir.resolve("workspace");
         Files.createDirectories(workspace);
         Files.writeString(workspace.resolve("state.txt"), "workspace-state");
@@ -59,7 +59,7 @@ class WorkspaceSnapshotServiceTest {
         SnapshotMetadata metadata = service.save(owner, plan, workspace, "task-a").orElseThrow();
 
         assertThatThrownBy(() -> service.restore(
-                context("tenant-b", "agent-a", "session-a"),
+                context("owner-scope-b", "agent-a", "session-a"),
                 metadata.id(),
                 tempDir.resolve("forbidden")))
                 .isInstanceOf(SecurityException.class)
@@ -70,7 +70,7 @@ class WorkspaceSnapshotServiceTest {
     void skipsSymbolicLinksWhenSavingWorkspaceSnapshot() throws Exception {
         InMemorySnapshotStore store = new InMemorySnapshotStore(SnapshotStoreType.JDBC, "memory://snapshots");
         WorkspaceSnapshotService service = new WorkspaceSnapshotService(store);
-        RuntimeContextScope context = context("tenant-a", "agent-a", "session-a");
+        RuntimeContextScope context = context("owner-scope-a", "agent-a", "session-a");
         Path outside = tempDir.resolve("outside.txt");
         Files.writeString(outside, "outside-secret");
         Path workspace = tempDir.resolve("workspace");
@@ -95,7 +95,7 @@ class WorkspaceSnapshotServiceTest {
     void rejectsRestoreWhenTargetParentIsSymbolicLink() throws Exception {
         InMemorySnapshotStore store = new InMemorySnapshotStore(SnapshotStoreType.JDBC, "memory://snapshots");
         WorkspaceSnapshotService service = new WorkspaceSnapshotService(store);
-        RuntimeContextScope context = context("tenant-a", "agent-a", "session-a");
+        RuntimeContextScope context = context("owner-scope-a", "agent-a", "session-a");
         Path workspace = tempDir.resolve("workspace");
         Files.createDirectories(workspace.resolve("linked"));
         Files.writeString(workspace.resolve("linked/state.txt"), "workspace-state");
@@ -116,9 +116,9 @@ class WorkspaceSnapshotServiceTest {
                 .hasMessageContaining("symbolic link");
     }
 
-    private static RuntimeContextScope context(String tenantId, String agentId, String sessionId) {
+    private static RuntimeContextScope context(String ownerScopeId, String agentId, String sessionId) {
         return new RuntimeContextScope(
-                tenantId,
+                ownerScopeId,
                 "user-a",
                 agentId,
                 sessionId,

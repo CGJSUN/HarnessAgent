@@ -3,39 +3,66 @@ package com.harnessagent.tooling.execution;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
+import com.harnessagent.runtime.PersonalRuntimeDefaults;
 import com.harnessagent.tooling.domain.ToolPrincipal;
 
 public record ToolExecutionCommand(
-        String tenantId,
-        String userId,
+        String ownerScopeId,
+        String ownerId,
         String agentId,
         String sessionId,
         String toolId,
         Map<String, Object> parameters,
-        Set<String> departments,
-        Set<String> roles,
         boolean confirmed,
-        String approvalId,
-        String reviewerId,
         String idempotencyKey) {
 
     public ToolExecutionCommand {
-        tenantId = require(tenantId, "tenantId");
-        userId = require(userId, "userId");
+        ownerScopeId = require(ownerScopeId, "ownerScopeId");
+        ownerId = require(ownerId, "ownerId");
         agentId = require(agentId, "agentId");
         sessionId = require(sessionId, "sessionId");
         toolId = require(toolId, "toolId");
         parameters = safeMap(parameters);
-        departments = safeSet(departments);
-        roles = safeSet(roles);
-        approvalId = trimToNull(approvalId);
-        reviewerId = trimToNull(reviewerId);
         idempotencyKey = trimToNull(idempotencyKey);
     }
 
+    public ToolExecutionCommand(
+            String ownerScopeId,
+            String ownerId,
+            String agentId,
+            String sessionId,
+            String toolId,
+            Map<String, Object> parameters,
+            Set<String> ignoredOwnerHints,
+            Set<String> ignoredGroupHints,
+            boolean confirmed,
+            String ignoredApprovalId,
+            String ignoredReviewerId,
+            String idempotencyKey) {
+        this(ownerScopeId, ownerId, agentId, sessionId, toolId, parameters, confirmed, idempotencyKey);
+    }
+
     public ToolPrincipal principal() {
-        return new ToolPrincipal(tenantId, userId, agentId, sessionId, departments, roles);
+        return new ToolPrincipal(ownerScopeId, ownerId, agentId, sessionId);
+    }
+
+    public static ToolExecutionCommand forOwner(
+            String ownerId,
+            String agentId,
+            String sessionId,
+            String toolId,
+            Map<String, Object> parameters,
+            boolean confirmed,
+            String idempotencyKey) {
+        return new ToolExecutionCommand(
+                PersonalRuntimeDefaults.PERSONAL_SCOPE_ID,
+                ownerId,
+                agentId,
+                sessionId,
+                toolId,
+                parameters,
+                confirmed,
+                idempotencyKey);
     }
 
     private static String require(String value, String field) {
@@ -60,15 +87,5 @@ public record ToolExecutionCommand(
             }
         });
         return Map.copyOf(result);
-    }
-
-    private static Set<String> safeSet(Set<String> input) {
-        if (input == null) {
-            return Set.of();
-        }
-        return input.stream()
-                .filter(value -> value != null && !value.isBlank())
-                .map(String::trim)
-                .collect(Collectors.toUnmodifiableSet());
     }
 }

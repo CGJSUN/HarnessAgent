@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -40,15 +40,15 @@ describe("App shell", () => {
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
-  it("keeps personal workbench navigation available without privileged roles", async () => {
+  it("keeps personal workbench navigation focused on owner identity", async () => {
     render(<App />);
 
-    const roles = screen.getByLabelText("Roles");
-    fireEvent.change(roles, { target: { value: "employee" } });
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
 
+    const identityPanel = screen.getByRole("region", { name: "Local identity" });
+    expect(within(identityPanel).getByLabelText("Owner")).toBeInTheDocument();
+    expect(within(identityPanel).getByLabelText("Agent")).toBeInTheDocument();
     const navigation = screen.getByRole("navigation", { name: "Workspace" });
-    expect(within(navigation).queryByRole("button", { name: "Admin" })).not.toBeInTheDocument();
     expect(within(navigation).getByRole("button", { name: "Tasks" })).toBeEnabled();
     expect(within(navigation).getByRole("button", { name: "Files" })).toBeEnabled();
     expect(within(navigation).getByRole("button", { name: "Knowledge" })).toBeEnabled();

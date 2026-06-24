@@ -5,7 +5,7 @@ import java.util.Optional;
 
 public record PersonalMemoryRecord(
         String id,
-        String tenantId,
+        String ownerScopeId,
         String ownerId,
         String agentId,
         String sessionId,
@@ -28,7 +28,7 @@ public record PersonalMemoryRecord(
     public PersonalMemoryRecord withStatus(MemoryWriteStatus status) {
         return new PersonalMemoryRecord(
                 id,
-                tenantId,
+                ownerScopeId,
                 ownerId,
                 agentId,
                 sessionId,
@@ -44,7 +44,7 @@ public record PersonalMemoryRecord(
     public PersonalMemoryRecord withSource(String sourceId) {
         return new PersonalMemoryRecord(
                 id,
-                tenantId,
+                ownerScopeId,
                 ownerId,
                 agentId,
                 sessionId,
@@ -60,7 +60,7 @@ public record PersonalMemoryRecord(
     public PersonalMemoryRecord redactedDeleted() {
         return new PersonalMemoryRecord(
                 id,
-                tenantId,
+                ownerScopeId,
                 ownerId,
                 agentId,
                 "",

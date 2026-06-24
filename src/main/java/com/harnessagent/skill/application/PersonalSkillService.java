@@ -1,11 +1,11 @@
 package com.harnessagent.skill.application;
 
 import com.harnessagent.security.application.AuthorizationService;
-import com.harnessagent.security.application.SecurityAuditService;
+import com.harnessagent.security.application.SecurityActivityService;
 import com.harnessagent.security.domain.Permission;
 import com.harnessagent.security.domain.ResourceAccessPolicy;
 import com.harnessagent.security.domain.ResourceType;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.skill.domain.PersonalSkillMetadata;
 import com.harnessagent.skill.domain.PersonalSkillStatus;
 import com.harnessagent.skill.domain.SkillExecutionRequest;
@@ -35,21 +35,21 @@ public class PersonalSkillService {
 
     private final LocalSkillRepositoryAdapter localRepositoryAdapter;
     private final AuthorizationService authorizationService;
-    private final SecurityAuditService securityAuditService;
+    private final SecurityActivityService securityActivityService;
     private final Map<String, PersonalSkillMetadata> skills = new ConcurrentHashMap<>();
 
     @Autowired
     public PersonalSkillService(
             LocalSkillRepositoryAdapter localRepositoryAdapter,
             AuthorizationService authorizationService,
-            SecurityAuditService securityAuditService) {
+            SecurityActivityService securityActivityService) {
         this.localRepositoryAdapter = localRepositoryAdapter == null
                 ? new LocalSkillRepositoryAdapter()
                 : localRepositoryAdapter;
         this.authorizationService = authorizationService == null
                 ? new AuthorizationService()
                 : authorizationService;
-        this.securityAuditService = securityAuditService;
+        this.securityActivityService = securityActivityService;
     }
 
     public PersonalSkillService(
@@ -58,12 +58,12 @@ public class PersonalSkillService {
         this(localRepositoryAdapter, authorizationService, null);
     }
 
-    public List<PersonalSkillMetadata> refreshLocalRepository(SecurityPrincipal owner, Path repositoryRoot) {
+    public List<PersonalSkillMetadata> refreshLocalRepository(OwnerPrincipal owner, Path repositoryRoot) {
         List<PersonalSkillMetadata> scanned = localRepositoryAdapter.scan(owner, repositoryRoot);
         List<PersonalSkillMetadata> merged = scanned.stream()
                 .map(this::preserveExistingStatus)
                 .toList();
-        merged.forEach(skill -> skills.put(key(skill.tenantId(), skill.ownerId(), skill.name(), skill.version()), skill));
+        merged.forEach(skill -> skills.put(key(skill.ownerScopeId(), skill.ownerId(), skill.name(), skill.version()), skill));
         return merged;
     }
 
@@ -75,7 +75,7 @@ public class PersonalSkillService {
                 SkillRepositoryType.POSTGRESQL);
     }
 
-    public SkillValidationResult validateLocalSkill(SecurityPrincipal owner, Path skillDirectory) {
+    public SkillValidationResult validateLocalSkill(OwnerPrincipal owner, Path skillDirectory) {
         return localRepositoryAdapter.validate(skillDirectory);
     }
 
@@ -102,47 +102,47 @@ public class PersonalSkillService {
                 request.context());
     }
 
-    public PersonalSkillMetadata enable(SecurityPrincipal owner, String skillName, String version) {
-        PersonalSkillMetadata skill = find(owner.tenantId(), owner.userId(), skillName, version)
+    public PersonalSkillMetadata enable(OwnerPrincipal owner, String skillName, String version) {
+        PersonalSkillMetadata skill = find(owner.scopeId(), owner.ownerId(), skillName, version)
                 .orElseThrow(() -> new IllegalStateException("A valid skill version is required before enabling"));
-        requireNotLockedForChange(owner.tenantId(), owner.userId(), skillName, version);
-        disableOtherVersions(owner.tenantId(), owner.userId(), skillName, version);
-        return audit(owner, save(activeSkill(skill)), "SKILL_ENABLED");
+        requireNotLockedForChange(owner.scopeId(), owner.ownerId(), skillName, version);
+        disableOtherVersions(owner.scopeId(), owner.ownerId(), skillName, version);
+        return recordActivity(owner, save(activeSkill(skill)), "SKILL_ENABLED");
     }
 
-    public PersonalSkillMetadata disable(SecurityPrincipal owner, String skillName, String version) {
-        PersonalSkillMetadata skill = require(owner.tenantId(), owner.userId(), skillName, version);
-        return audit(owner, save(skill.withStatus(PersonalSkillStatus.DISABLED)), "SKILL_DISABLED");
+    public PersonalSkillMetadata disable(OwnerPrincipal owner, String skillName, String version) {
+        PersonalSkillMetadata skill = require(owner.scopeId(), owner.ownerId(), skillName, version);
+        return recordActivity(owner, save(skill.withStatus(PersonalSkillStatus.DISABLED)), "SKILL_DISABLED");
     }
 
-    public PersonalSkillMetadata upgrade(SecurityPrincipal owner, String skillName, String targetVersion) {
-        requireNotLockedForChange(owner.tenantId(), owner.userId(), skillName, targetVersion);
-        Optional<String> previousVersion = activeVersion(owner.tenantId(), owner.userId(), skillName);
-        PersonalSkillMetadata target = require(owner.tenantId(), owner.userId(), skillName, targetVersion);
-        disableOtherVersions(owner.tenantId(), owner.userId(), skillName, target.version());
-        return audit(owner, save(activeSkill(target)), "SKILL_UPGRADED", previousVersion);
+    public PersonalSkillMetadata upgrade(OwnerPrincipal owner, String skillName, String targetVersion) {
+        requireNotLockedForChange(owner.scopeId(), owner.ownerId(), skillName, targetVersion);
+        Optional<String> previousVersion = activeVersion(owner.scopeId(), owner.ownerId(), skillName);
+        PersonalSkillMetadata target = require(owner.scopeId(), owner.ownerId(), skillName, targetVersion);
+        disableOtherVersions(owner.scopeId(), owner.ownerId(), skillName, target.version());
+        return recordActivity(owner, save(activeSkill(target)), "SKILL_UPGRADED", previousVersion);
     }
 
-    public PersonalSkillMetadata rollback(SecurityPrincipal owner, String skillName, String targetVersion) {
-        Optional<String> previousVersion = activeVersion(owner.tenantId(), owner.userId(), skillName);
-        PersonalSkillMetadata target = require(owner.tenantId(), owner.userId(), skillName, targetVersion);
-        disableOtherVersions(owner.tenantId(), owner.userId(), skillName, target.version());
-        return audit(owner, save(activeSkill(target)), "SKILL_ROLLED_BACK", previousVersion);
+    public PersonalSkillMetadata rollback(OwnerPrincipal owner, String skillName, String targetVersion) {
+        Optional<String> previousVersion = activeVersion(owner.scopeId(), owner.ownerId(), skillName);
+        PersonalSkillMetadata target = require(owner.scopeId(), owner.ownerId(), skillName, targetVersion);
+        disableOtherVersions(owner.scopeId(), owner.ownerId(), skillName, target.version());
+        return recordActivity(owner, save(activeSkill(target)), "SKILL_ROLLED_BACK", previousVersion);
     }
 
-    public PersonalSkillMetadata lock(SecurityPrincipal owner, String skillName, String version) {
-        PersonalSkillMetadata target = require(owner.tenantId(), owner.userId(), skillName, version);
-        disableOtherVersions(owner.tenantId(), owner.userId(), skillName, target.version());
-        return audit(owner, save(target.withStatus(PersonalSkillStatus.LOCKED)), "SKILL_VERSION_LOCKED");
+    public PersonalSkillMetadata lock(OwnerPrincipal owner, String skillName, String version) {
+        PersonalSkillMetadata target = require(owner.scopeId(), owner.ownerId(), skillName, version);
+        disableOtherVersions(owner.scopeId(), owner.ownerId(), skillName, target.version());
+        return recordActivity(owner, save(target.withStatus(PersonalSkillStatus.LOCKED)), "SKILL_VERSION_LOCKED");
     }
 
-    public List<PersonalSkillMetadata> list(String tenantId, String skillName) {
-        return list(tenantId, null, skillName);
+    public List<PersonalSkillMetadata> list(String ownerScopeId, String skillName) {
+        return list(ownerScopeId, null, skillName);
     }
 
-    public List<PersonalSkillMetadata> list(String tenantId, String ownerId, String skillName) {
+    public List<PersonalSkillMetadata> list(String ownerScopeId, String ownerId, String skillName) {
         return skills.values().stream()
-                .filter(skill -> skill.tenantId().equals(tenantId))
+                .filter(skill -> skill.ownerScopeId().equals(ownerScopeId))
                 .filter(skill -> ownerId == null || ownerId.isBlank() || skill.ownerId().equals(ownerId))
                 .filter(skill -> skillName == null || skillName.isBlank() || skill.name().equals(skillName))
                 .sorted(Comparator
@@ -154,8 +154,8 @@ public class PersonalSkillService {
     private Optional<PersonalSkillMetadata> resolveSkill(SkillExecutionRequest request) {
         String text = (request.taskIntent() + " " + request.task()).toLowerCase(java.util.Locale.ROOT);
         return skills.values().stream()
-                .filter(skill -> skill.tenantId().equals(request.principal().tenantId()))
-                .filter(skill -> skill.ownerId().equals(request.principal().userId()))
+                .filter(skill -> skill.ownerScopeId().equals(request.principal().scopeId()))
+                .filter(skill -> skill.ownerId().equals(request.principal().ownerId()))
                 .filter(skill -> skill.status() == PersonalSkillStatus.ENABLED
                         || skill.status() == PersonalSkillStatus.LOCKED)
                 .filter(skill -> skill.agentIds().isEmpty() || skill.agentIds().contains(request.agentId()))
@@ -169,16 +169,14 @@ public class PersonalSkillService {
                 .findFirst();
     }
 
-    private void requireExecutable(SecurityPrincipal principal, PersonalSkillMetadata skill) {
+    private void requireExecutable(OwnerPrincipal principal, PersonalSkillMetadata skill) {
         authorizationService.require(
                 principal,
-                new ResourceAccessPolicy(
+                ResourceAccessPolicy.ownerOnly(
+                        skill.ownerScopeId(),
+                        skill.ownerId(),
                         ResourceType.SKILL,
-                        skill.tenantId(),
-                        Set.of(skill.ownerId()),
-                        Set.of(),
-                        Set.of(),
-                        Set.of(Permission.EXECUTE)),
+                        Permission.EXECUTE),
                 Permission.EXECUTE);
     }
 
@@ -261,33 +259,33 @@ public class PersonalSkillService {
         }
     }
 
-    private void disableOtherVersions(String tenantId, String ownerId, String skillName, String targetVersion) {
-        list(tenantId, ownerId, skillName).stream()
+    private void disableOtherVersions(String ownerScopeId, String ownerId, String skillName, String targetVersion) {
+        list(ownerScopeId, ownerId, skillName).stream()
                 .filter(skill -> !skill.version().equals(targetVersion))
                 .forEach(skill -> save(skill.withStatus(PersonalSkillStatus.DISABLED)));
     }
 
-    private Optional<String> activeVersion(String tenantId, String ownerId, String skillName) {
-        return list(tenantId, ownerId, skillName).stream()
+    private Optional<String> activeVersion(String ownerScopeId, String ownerId, String skillName) {
+        return list(ownerScopeId, ownerId, skillName).stream()
                 .filter(skill -> skill.status() == PersonalSkillStatus.ENABLED
                         || skill.status() == PersonalSkillStatus.LOCKED)
                 .map(PersonalSkillMetadata::version)
                 .findFirst();
     }
 
-    private PersonalSkillMetadata require(String tenantId, String ownerId, String skillName, String version) {
-        return find(tenantId, ownerId, skillName, version)
+    private PersonalSkillMetadata require(String ownerScopeId, String ownerId, String skillName, String version) {
+        return find(ownerScopeId, ownerId, skillName, version)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown skill version: " + skillName + " " + version));
     }
 
-    private Optional<PersonalSkillMetadata> find(String tenantId, String ownerId, String skillName, String version) {
-        return Optional.ofNullable(skills.get(key(tenantId, ownerId, skillName, version)));
+    private Optional<PersonalSkillMetadata> find(String ownerScopeId, String ownerId, String skillName, String version) {
+        return Optional.ofNullable(skills.get(key(ownerScopeId, ownerId, skillName, version)));
     }
 
     private PersonalSkillMetadata preserveExistingStatus(PersonalSkillMetadata scanned) {
-        Optional<PersonalSkillMetadata> existing = find(scanned.tenantId(), scanned.ownerId(), scanned.name(), scanned.version());
+        Optional<PersonalSkillMetadata> existing = find(scanned.ownerScopeId(), scanned.ownerId(), scanned.name(), scanned.version());
         if (existing.isEmpty()) {
-            Optional<PersonalSkillMetadata> locked = list(scanned.tenantId(), scanned.ownerId(), scanned.name()).stream()
+            Optional<PersonalSkillMetadata> locked = list(scanned.ownerScopeId(), scanned.ownerId(), scanned.name()).stream()
                     .filter(skill -> skill.status() == PersonalSkillStatus.LOCKED)
                     .findFirst();
             if (locked.isPresent() && !locked.get().version().equals(scanned.version())) {
@@ -298,7 +296,7 @@ public class PersonalSkillService {
         return existing
                 .map(current -> new PersonalSkillMetadata(
                         current.id(),
-                        scanned.tenantId(),
+                        scanned.ownerScopeId(),
                         scanned.ownerId(),
                         scanned.name(),
                         scanned.description(),
@@ -314,8 +312,8 @@ public class PersonalSkillService {
                 .orElse(scanned);
     }
 
-    private void requireNotLockedForChange(String tenantId, String ownerId, String skillName, String targetVersion) {
-        Optional<PersonalSkillMetadata> locked = list(tenantId, ownerId, skillName).stream()
+    private void requireNotLockedForChange(String ownerScopeId, String ownerId, String skillName, String targetVersion) {
+        Optional<PersonalSkillMetadata> locked = list(ownerScopeId, ownerId, skillName).stream()
                 .filter(skill -> skill.status() == PersonalSkillStatus.LOCKED)
                 .findFirst();
         if (locked.isPresent() && !locked.get().version().equals(targetVersion)) {
@@ -332,7 +330,7 @@ public class PersonalSkillService {
     private PersonalSkillMetadata save(PersonalSkillMetadata skill) {
         PersonalSkillMetadata updated = new PersonalSkillMetadata(
                 skill.id(),
-                skill.tenantId(),
+                skill.ownerScopeId(),
                 skill.ownerId(),
                 skill.name(),
                 skill.description(),
@@ -345,32 +343,32 @@ public class PersonalSkillService {
                 skill.agentIds(),
                 skill.status(),
                 Instant.now());
-        skills.put(key(updated.tenantId(), updated.ownerId(), updated.name(), updated.version()), updated);
+        skills.put(key(updated.ownerScopeId(), updated.ownerId(), updated.name(), updated.version()), updated);
         return updated;
     }
 
-    private PersonalSkillMetadata audit(SecurityPrincipal owner, PersonalSkillMetadata skill, String action) {
-        return audit(owner, skill, action, Optional.empty());
+    private PersonalSkillMetadata recordActivity(OwnerPrincipal owner, PersonalSkillMetadata skill, String action) {
+        return recordActivity(owner, skill, action, Optional.empty());
     }
 
-    private PersonalSkillMetadata audit(
-            SecurityPrincipal owner,
+    private PersonalSkillMetadata recordActivity(
+            OwnerPrincipal owner,
             PersonalSkillMetadata skill,
             String action,
             Optional<String> previousVersion) {
-        if (securityAuditService != null) {
+        if (securityActivityService != null) {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("skillName", skill.name());
             details.put("version", skill.version());
             details.put("status", skill.status().name());
             details.put("sourceType", skill.sourceType().name());
             previousVersion.ifPresent(version -> details.put("previousVersion", version));
-            securityAuditService.record(owner, ResourceType.SKILL, skill.id(), action, details);
+            securityActivityService.record(owner, ResourceType.SKILL, skill.id(), action, details);
         }
         return skill;
     }
 
-    private static String key(String tenantId, String ownerId, String skillName, String version) {
-        return tenantId + ":" + ownerId + ":" + skillName + ":" + version;
+    private static String key(String ownerScopeId, String ownerId, String skillName, String version) {
+        return ownerScopeId + ":" + ownerId + ":" + skillName + ":" + version;
     }
 }

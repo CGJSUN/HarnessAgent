@@ -23,6 +23,8 @@ public class HarnessAgentProperties {
 
     private MemoryRag memoryRag = new MemoryRag();
 
+    private Legacy legacy = new Legacy();
+
     public String getDefaultAgentId() {
         return defaultAgentId;
     }
@@ -71,6 +73,14 @@ public class HarnessAgentProperties {
         this.memoryRag = memoryRag == null ? new MemoryRag() : memoryRag;
     }
 
+    public Legacy getLegacy() {
+        return legacy;
+    }
+
+    public void setLegacy(Legacy legacy) {
+        this.legacy = legacy == null ? new Legacy() : legacy;
+    }
+
     public AgentDefinition requireAgent(String agentId) {
         AgentDefinition definition = agents.get(agentId);
         if (definition == null) {
@@ -108,6 +118,18 @@ public class HarnessAgentProperties {
 
         public void setProvider(String provider) {
             this.provider = provider == null || provider.isBlank() ? "local" : provider.trim();
+        }
+    }
+
+    public static class Legacy {
+        private boolean requestAdapterEnabled;
+
+        public boolean isRequestAdapterEnabled() {
+            return requestAdapterEnabled;
+        }
+
+        public void setRequestAdapterEnabled(boolean requestAdapterEnabled) {
+            this.requestAdapterEnabled = requestAdapterEnabled;
         }
     }
 

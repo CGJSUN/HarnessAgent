@@ -5,28 +5,26 @@ import java.util.stream.Collectors;
 
 public record ResourceAccessPolicy(
         ResourceType resourceType,
-        String tenantId,
-        Set<String> allowedUsers,
-        Set<String> allowedRoles,
-        Set<String> allowedDepartments,
+        String ownerScopeId,
+        Set<String> allowedOwnerIds,
         Set<Permission> permissions) {
 
     public ResourceAccessPolicy {
         resourceType = resourceType == null ? ResourceType.AGENT : resourceType;
-        tenantId = require(tenantId, "tenantId");
-        allowedUsers = safeSet(allowedUsers);
-        allowedRoles = safeSet(allowedRoles);
-        allowedDepartments = safeSet(allowedDepartments);
+        ownerScopeId = require(ownerScopeId, "ownerScopeId");
+        allowedOwnerIds = safeSet(allowedOwnerIds);
         permissions = permissions == null ? Set.of() : Set.copyOf(permissions);
     }
 
-    public static ResourceAccessPolicy adminOnly(String tenantId, ResourceType resourceType, Permission permission) {
+    public static ResourceAccessPolicy ownerOnly(
+            String ownerScopeId,
+            String ownerId,
+            ResourceType resourceType,
+            Permission permission) {
         return new ResourceAccessPolicy(
                 resourceType,
-                tenantId,
-                Set.of(),
-                Set.of("admin"),
-                Set.of(),
+                ownerScopeId,
+                Set.of(ownerId),
                 Set.of(permission));
     }
 

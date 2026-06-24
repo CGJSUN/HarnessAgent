@@ -45,10 +45,10 @@ public class InMemorySnapshotStore implements SnapshotStore {
     }
 
     @Override
-    public List<SnapshotMetadata> list(String tenantId, String agentId, String sessionId) {
+    public List<SnapshotMetadata> list(String ownerScopeId, String agentId, String sessionId) {
         return snapshots.values().stream()
                 .map(Snapshot::metadata)
-                .filter(metadata -> metadata.tenantId().equals(tenantId))
+                .filter(metadata -> metadata.ownerScopeId().equals(ownerScopeId))
                 .filter(metadata -> metadata.agentId().equals(agentId))
                 .filter(metadata -> metadata.sessionId().equals(sessionId))
                 .sorted(Comparator.comparing(SnapshotMetadata::createdAt))

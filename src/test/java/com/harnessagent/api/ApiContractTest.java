@@ -15,15 +15,17 @@ import com.harnessagent.api.controller.ChatController;
 import com.harnessagent.api.controller.ConsoleController;
 import com.harnessagent.api.controller.KnowledgeController;
 import com.harnessagent.api.controller.OrchestrationController;
-import com.harnessagent.api.controller.ReleaseController;
+import com.harnessagent.api.controller.ReadinessController;
 import com.harnessagent.api.controller.SessionController;
 import com.harnessagent.api.controller.SkillController;
 import com.harnessagent.api.controller.ToolController;
 import com.harnessagent.api.request.ChatRequest;
 import com.harnessagent.api.request.OrchestrationApiRequest;
+import com.harnessagent.api.request.SkillValidationRequest;
 import com.harnessagent.api.request.ToolExecutionApiRequest;
 import com.harnessagent.api.response.ChatResponse;
 import com.harnessagent.api.response.ErrorResponse;
+import com.harnessagent.api.response.PersonalSkillResponse;
 import com.harnessagent.api.response.StreamEventKind;
 import com.harnessagent.api.response.StreamEventResponse;
 import com.harnessagent.chat.domain.ChatCommand;
@@ -41,10 +43,16 @@ import com.harnessagent.orchestration.domain.OrchestrationTrace;
 import com.harnessagent.orchestration.domain.RouteDecision;
 import com.harnessagent.rag.application.PersonalMemoryService;
 import com.harnessagent.rag.domain.KnowledgeCitation;
+import com.harnessagent.runtime.RuntimeContextFactory;
+import com.harnessagent.runtime.RuntimeContextScope;
 import com.harnessagent.security.domain.IdentityProviderType;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import com.harnessagent.session.domain.ChatMessage;
 import com.harnessagent.session.domain.MessageRole;
+import com.harnessagent.session.persistence.SessionStore;
+import com.harnessagent.skill.domain.PersonalSkillStatus;
+import com.harnessagent.skill.domain.SkillPermissionSet;
+import com.harnessagent.skill.domain.SkillRepositoryType;
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
@@ -113,16 +121,88 @@ class ApiContractTest {
     }
 
     @Test
+    void personalApiDtoJsonUsesOwnerContract() throws Exception {
+        JsonNode chat = objectMapper.readTree(objectMapper.writeValueAsString(new ChatRequest(
+                "owner-a",
+                "personal-assistant",
+                "session-a",
+                "question",
+                true,
+                3)));
+        assertThat(chat.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder(
+                        "ownerId",
+                        "agentId",
+                        "sessionId",
+                        "message",
+                        "knowledgeEnabled",
+                        "knowledgeLimit");
+
+        JsonNode tool = objectMapper.readTree(objectMapper.writeValueAsString(new ToolExecutionApiRequest(
+                "owner-a",
+                "personal-assistant",
+                "session-a",
+                "tool-a",
+                Map.of("path", "workspace://notes.md"),
+                true,
+                "idem-a")));
+        assertThat(tool.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder(
+                        "ownerId",
+                        "agentId",
+                        "sessionId",
+                        "toolId",
+                        "parameters",
+                        "confirmed",
+                        "idempotencyKey");
+
+        JsonNode skillRequest = objectMapper.readTree(objectMapper.writeValueAsString(new SkillValidationRequest(
+                "owner-a",
+                "personal-assistant",
+                "workspace://skills/summarize")));
+        assertThat(skillRequest.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("ownerId", "agentId", "skillDirectory");
+
+        JsonNode skillResponse = objectMapper.readTree(objectMapper.writeValueAsString(new PersonalSkillResponse(
+                "skill-a",
+                "owner-a",
+                "summarize",
+                "Summarize notes",
+                "1.0.0",
+                Set.of("summarize"),
+                SkillRepositoryType.LOCAL,
+                "workspace://skills/summarize",
+                new SkillPermissionSet(Set.of(), Set.of(), false, false, false),
+                Set.of(),
+                Set.of("personal-assistant"),
+                PersonalSkillStatus.ENABLED,
+                Instant.parse("2026-06-15T08:00:00Z"))));
+        assertThat(skillResponse.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder(
+                        "id",
+                        "ownerId",
+                        "name",
+                        "description",
+                        "version",
+                        "triggers",
+                        "sourceType",
+                        "source",
+                        "permissions",
+                        "resources",
+                        "agentIds",
+                        "status",
+                        "updatedAt");
+    }
+
+    @Test
     void chatControllerPreservesRequestIdentityAndResponseContract() {
         ChatService chatService = mock(ChatService.class);
         ApiIdentityResolver identityResolver = mock(ApiIdentityResolver.class);
-        when(identityResolver.resolve(any(), any(), any(), any(), any()))
-                .thenReturn(new SecurityPrincipal(
-                        "tenant-a",
+        when(identityResolver.resolve(any(), any()))
+                .thenReturn(new OwnerPrincipal(
+                        "personal",
                         "trusted-user",
-                        IdentityProviderType.INTERNAL,
-                        Set.of("agent-user"),
-                        Set.of("support")));
+                        IdentityProviderType.INTERNAL));
         when(chatService.chat(any()))
                 .thenReturn(Mono.just(ChatResult.noAnswer("No accessible evidence.", "trusted-user", "session-a")));
 
@@ -130,22 +210,17 @@ class ApiContractTest {
         ChatResponse response = controller.chat(
                 Map.of(),
                 new ChatRequest(
-                        "tenant-a",
                         "body-user",
-                        "enterprise-assistant",
+                        "personal-assistant",
                         "session-a",
                         "question",
                         true,
-                        Set.of("body-dept"),
-                        Set.of("body-role"),
                         3));
 
         ArgumentCaptor<ChatCommand> command = ArgumentCaptor.forClass(ChatCommand.class);
         verify(chatService).chat(command.capture());
-        assertThat(command.getValue().tenantId()).isEqualTo("tenant-a");
-        assertThat(command.getValue().userId()).isEqualTo("trusted-user");
-        assertThat(command.getValue().departments()).containsExactly("support");
-        assertThat(command.getValue().roles()).containsExactly("agent-user");
+        assertThat(command.getValue().ownerScopeId()).isEqualTo("personal");
+        assertThat(command.getValue().ownerId()).isEqualTo("trusted-user");
         assertThat(command.getValue().knowledgeEnabled()).isTrue();
         assertThat(command.getValue().knowledgeLimit()).isEqualTo(3);
 
@@ -173,8 +248,7 @@ class ApiContractTest {
                 new ApiIdentityResolver());
 
         assertThatThrownBy(() -> controller.listMemories(
-                        Map.of("X-Tenant-Id", "personal", "X-User-Id", "owner-a"),
-                        "personal",
+                        Map.of("X-Owner-Id", "owner-a"),
                         "owner-b",
                         "agent-a"))
                 .isInstanceOf(IllegalStateException.class)
@@ -190,11 +264,10 @@ class ApiContractTest {
 
         assertThatThrownBy(() -> controller.exportPersonalData(
                         Map.of(),
-                        "personal",
                         "owner-b",
                         "agent-b"))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Authenticated tenantId is required");
+                .hasMessageContaining("Authenticated ownerId is required");
     }
 
     @Test
@@ -206,10 +279,8 @@ class ApiContractTest {
 
         assertThatThrownBy(() -> controller.listMemories(
                         Map.of(
-                                "X-Tenant-Id", "personal",
-                                "X-User-Id", "owner-a",
+                                "X-Owner-Id", "owner-a",
                                 "X-Agent-Id", "agent-a"),
-                        "personal",
                         "owner-a",
                         "agent-b"))
                 .isInstanceOf(IllegalStateException.class)
@@ -222,23 +293,17 @@ class ApiContractTest {
                 mock(com.harnessagent.tooling.application.ToolService.class),
                 new ApiIdentityResolver());
         ToolExecutionApiRequest request = new ToolExecutionApiRequest(
-                "tenant-a",
                 "owner-a",
                 "agent-b",
                 "session-a",
                 "tool-a",
                 Map.of(),
-                Set.of(),
-                Set.of(),
                 false,
-                null,
-                null,
                 null);
 
         assertThatThrownBy(() -> controller.execute(
                         Map.of(
-                                "X-Tenant-Id", "tenant-a",
-                                "X-User-Id", "owner-a",
+                                "X-Owner-Id", "owner-a",
                                 "X-Agent-Id", "agent-a"),
                         request))
                 .isInstanceOf(IllegalStateException.class)
@@ -246,16 +311,39 @@ class ApiContractTest {
     }
 
     @Test
+    void sessionControllerUsesOwnerAgentAndSessionScope() {
+        SessionStore sessionStore = mock(SessionStore.class);
+        ChatMessage message = ChatMessage.assistant("hello");
+        when(sessionStore.listMessages(any())).thenReturn(List.of(message));
+        SessionController controller = new SessionController(
+                new RuntimeContextFactory(),
+                sessionStore,
+                new ApiIdentityResolver());
+
+        List<ChatMessage> messages = controller.listMessages(
+                Map.of("X-Owner-Id", "owner-a"),
+                "owner-a",
+                "agent-a",
+                "session-a");
+
+        ArgumentCaptor<RuntimeContextScope> context = ArgumentCaptor.forClass(RuntimeContextScope.class);
+        verify(sessionStore).listMessages(context.capture());
+        assertThat(messages).containsExactly(message);
+        assertThat(context.getValue().ownerId()).isEqualTo("owner-a");
+        assertThat(context.getValue().agentId()).isEqualTo("agent-a");
+        assertThat(context.getValue().sessionId()).isEqualTo("session-a");
+        assertThat(context.getValue().runtimeUserId()).isEqualTo("owner:owner-a");
+    }
+
+    @Test
     void orchestrationControllerPassesDelegationAndFailureControls() {
         OrchestrationService orchestrationService = mock(OrchestrationService.class);
         ApiIdentityResolver identityResolver = mock(ApiIdentityResolver.class);
-        SecurityPrincipal principal = new SecurityPrincipal(
-                "tenant-a",
+        OwnerPrincipal principal = new OwnerPrincipal(
+                "owner-scope-a",
                 "trusted-user",
-                IdentityProviderType.INTERNAL,
-                Set.of("employee"),
-                Set.of("support"));
-        when(identityResolver.resolve(any(), any(), any(), any(), any()))
+                IdentityProviderType.INTERNAL);
+        when(identityResolver.resolve(any(), any()))
                 .thenReturn(principal);
         when(orchestrationService.orchestrate(any()))
                 .thenReturn(new OrchestrationResult(
@@ -263,7 +351,7 @@ class ApiContractTest {
                         new OrchestrationTrace(
                                 null,
                                 Instant.now(),
-                                "tenant-a",
+                                "owner-scope-a",
                                 "trusted-user",
                                 "supervisor",
                                 "",
@@ -279,10 +367,7 @@ class ApiContractTest {
         controller.route(
                 Map.of(),
                 new OrchestrationApiRequest(
-                        "tenant-a",
                         "body-user",
-                        Set.of("body-role"),
-                        Set.of("body-dept"),
                         "supervisor",
                         "intent",
                         "task",
@@ -381,7 +466,7 @@ class ApiContractTest {
     }
 
     @Test
-    void restUrlInventoryRemainsStable() throws Exception {
+    void personalAndLegacyRestUrlInventoryRemainStable() throws Exception {
         assertRootMapping(ToolController.class, "/api/tools");
         assertPostMapping(ToolController.class, "register", new String[0]);
         assertGetMapping(ToolController.class, "list", new String[0]);
@@ -389,7 +474,7 @@ class ApiContractTest {
         assertPostMapping(ToolController.class, "reject", new String[] {"/reject"});
         assertGetMapping(ToolController.class, "listPendingConfirmations", new String[] {"/confirmations"});
         assertPostMapping(ToolController.class, "resumeConfirmation", new String[] {"/confirmations/{confirmationId}/resume"});
-        assertGetMapping(ToolController.class, "listAudit", new String[] {"/audit"});
+        assertGetMapping(ToolController.class, "listActivity", new String[] {"/activity"});
 
         assertRootMapping(KnowledgeController.class, "/api/knowledge");
         assertPostMapping(KnowledgeController.class, "registerSource", new String[] {"/sources"});
@@ -413,11 +498,11 @@ class ApiContractTest {
         assertGetMapping(SessionController.class, "listMessages", new String[] {"/messages"});
         assertDeleteMapping(SessionController.class, "deleteSession", new String[] {"/sessions/{sessionId}"});
 
-        assertRootMapping(ReleaseController.class, "/api/release");
-        assertGetMapping(ReleaseController.class, "scenario", new String[] {"/scenario"});
-        assertGetMapping(ReleaseController.class, "phaseGates", new String[] {"/phase-gates"});
-        assertGetMapping(ReleaseController.class, "rollbackActions", new String[] {"/rollback"});
-        assertGetMapping(ReleaseController.class, "acceptance", new String[] {"/acceptance"});
+        assertRootMapping(ReadinessController.class, "/api/diagnostics/readiness");
+        assertGetMapping(ReadinessController.class, "scenario", new String[] {"/scenario"});
+        assertGetMapping(ReadinessController.class, "readinessChecks", new String[] {"/readiness-checks"});
+        assertGetMapping(ReadinessController.class, "rollbackActions", new String[] {"/rollback"});
+        assertGetMapping(ReadinessController.class, "acceptance", new String[] {"/acceptance"});
 
         assertRootMapping(OrchestrationController.class, "/api/orchestration");
         assertPostMapping(OrchestrationController.class, "register", new String[] {"/agents"});
@@ -437,7 +522,7 @@ class ApiContractTest {
     }
 
     @Test
-    void consoleUrlInventoryRemainsStable() throws Exception {
+    void legacyConsoleUrlInventoryRemainsStable() throws Exception {
         assertRootMapping(ConsoleController.class, "/api/console");
         assertGetMapping(ConsoleController.class, "userConsole", new String[] {"/user"});
         assertGetMapping(ConsoleController.class, "listAgents", new String[] {"/agents"});
@@ -448,12 +533,9 @@ class ApiContractTest {
         assertGetMapping(ConsoleController.class, "listKnowledge", new String[] {"/knowledge"});
         assertPatchMapping(ConsoleController.class, "revokeKnowledge", new String[] {"/knowledge/{sourceId}/revoke"});
         assertGetMapping(ConsoleController.class, "listSkills", new String[] {"/skills"});
-        assertPatchMapping(ConsoleController.class, "approveSkill", new String[] {"/skills/{versionId}/approve"});
-        assertPatchMapping(ConsoleController.class, "publishSkill", new String[] {"/skills/{versionId}/publish"});
-        assertPatchMapping(ConsoleController.class, "disableSkill", new String[] {"/skills/{versionId}/disable"});
         assertGetMapping(ConsoleController.class, "metrics", new String[] {"/metrics"});
         assertGetMapping(ConsoleController.class, "cost", new String[] {"/cost"});
-        assertGetMapping(ConsoleController.class, "audit", new String[] {"/audit"});
+        assertGetMapping(ConsoleController.class, "recordActivity", new String[] {"/activity"});
     }
 
     private static void assertRootMapping(Class<?> controller, String path) {

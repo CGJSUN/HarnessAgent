@@ -56,6 +56,15 @@ test("runs the personal chat workbench with confirmations, typed events, and fil
 
   await page.goto("/");
   await expect(page.getByText("Personal Agent Workbench")).toBeVisible();
+  const identityPanel = page.getByRole("region", { name: "Local identity" });
+  await expect(identityPanel.getByLabel("Owner")).toBeVisible();
+  await expect(identityPanel.getByLabel("Agent")).toBeVisible();
+  await expect(page.getByLabel("Owner scope")).toHaveCount(0);
+  await expect(page.getByLabel("Owners")).toHaveCount(0);
+  await expect(page.getByLabel("Owners")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Owner settings" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Diagnostics" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Readiness" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Agent workspace" })).toBeVisible();
   await expect(page.getByRole("button", { name: /session-1/ })).toBeVisible();
   await expect(page.getByText("analysis.md")).toBeVisible();
@@ -132,8 +141,7 @@ async function mockBackend(page: Page) {
   await page.route("**/api/sessions?**", route =>
     json(route, [
       {
-        tenantId: "tenant-a",
-        userId: "admin-a",
+        ownerId: "owner-a",
         agentId: "personal-assistant",
         sessionId: "session-1",
         messageCount: 2,
@@ -269,8 +277,7 @@ async function mockBackend(page: Page) {
   await page.route("**/api/knowledge/memory/*?**", route => json(route, memory("memory-1", "Preference")));
   await page.route("**/api/knowledge/export?**", route =>
     json(route, {
-      tenantId: "tenant-a",
-      ownerId: "admin-a",
+      ownerId: "owner-a",
       agentId: "personal-assistant",
       memories: [memory("memory-1", "Preference")],
       knowledgeSources: [knowledgeSource()],
@@ -280,13 +287,12 @@ async function mockBackend(page: Page) {
   );
   await page.route("**/api/tools?**", route => json(route, [toolDefinition()]));
   await page.route("**/api/tools/confirmations?**", route => json(route, []));
-  await page.route("**/api/tools/audit?**", route =>
+  await page.route("**/api/tools/activity?**", route =>
     json(route, [
       {
-        id: "audit-1",
+        id: "activity-1",
         occurredAt: "2026-06-14T00:00:00Z",
-        tenantId: "tenant-a",
-        userId: "admin-a",
+        ownerId: "owner-a",
         agentId: "personal-assistant",
         sessionId: "session-1",
         toolId: "tool-2",
@@ -297,8 +303,6 @@ async function mockBackend(page: Page) {
         sanitizedInput: { query: "runbook" },
         sanitizedOutput: { hits: 1 },
         durationMillis: 20,
-        approvalId: "",
-        reviewerId: "",
         idempotencyKey: "idem-tool",
         failureReason: ""
       }
@@ -365,7 +369,7 @@ async function mockBackend(page: Page) {
   );
   await page.route("**/api/console/cost?**", route =>
     json(route, {
-      tenantId: "tenant-a",
+      ownerScopeId: "personal",
       agentId: "personal-assistant",
       providerId: "echo",
       tokenEvents: 2,
@@ -378,8 +382,7 @@ async function mockBackend(page: Page) {
       {
         id: "trace-1",
         occurredAt: "2026-06-14T00:00:00Z",
-        tenantId: "tenant-a",
-        userId: "admin-a",
+        ownerId: "owner-a",
         supervisorAgentId: "supervisor",
         selectedAgentId: "research-agent",
         taskIntent: "research handoff",
@@ -397,7 +400,7 @@ async function mockBackend(page: Page) {
 function plan() {
   return {
     id: "plan-1",
-    ownerId: "admin-a",
+    ownerId: "owner-a",
     agentId: "personal-assistant",
     sessionId: "session-1",
     goal: "Complete workbench",
@@ -424,15 +427,13 @@ function workspaceFile(name: string) {
 function knowledgeSource() {
   return {
     id: "source-1",
-    tenantId: "tenant-a",
-    ownerId: "admin-a",
+    ownerScopeId: "personal",
+    ownerId: "owner-a",
     agentId: "personal-assistant",
     title: "Runbook",
     version: "v1",
     visibility: "PUBLIC",
-    allowedDepartments: [],
-    allowedRoles: [],
-    allowedUsers: [],
+    allowedOwnerIds: [],
     updatePolicy: "MANUAL",
     sourceType: "LOCAL_FILE",
     sourceUri: "workspace://artifacts/runbook.md",
@@ -447,8 +448,8 @@ function knowledgeSource() {
 function memory(id: string, title: string) {
   return {
     id,
-    tenantId: "tenant-a",
-    ownerId: "admin-a",
+    ownerScopeId: "personal",
+    ownerId: "owner-a",
     agentId: "personal-assistant",
     sessionId: "session-1",
     layer: "FACT_LEDGER",
@@ -464,11 +465,11 @@ function memory(id: string, title: string) {
 function toolDefinition() {
   return {
     id: "tool-2",
-    tenantId: "tenant-a",
+    ownerScopeId: "personal",
     name: "search.docs",
     description: "Search personal documents",
     ownerSystem: "workbench",
-    ownerId: "admin-a",
+    ownerId: "owner-a",
     sourceType: "INTERNAL",
     sourceRef: "workbench",
     riskLevel: "READ_ONLY",
@@ -477,13 +478,11 @@ function toolDefinition() {
     parameterSchema: { requiredParameters: ["query"], optionalParameters: [], allowedValues: {}, sensitiveParameters: [], workspacePathParameters: [] },
     outputSchema: { outputType: "json", schema: {} },
     permissionPolicy: {
-      allowedTenantIds: ["tenant-a"],
-      allowedUserIds: ["admin-a"],
+      allowedOwnerIds: ["owner-a"],
       allowedAgentIds: ["personal-assistant"],
-      allowedDepartments: [],
-      allowedRoles: []
+      deniedOwnerIds: []
     },
-    auditPolicy: { enabled: true, sensitiveParameters: [], sensitiveResultFields: [] },
+    activityPolicy: { enabled: true, sensitiveParameters: [], sensitiveResultFields: [] },
     workloadType: "OFFICE",
     createdAt: "2026-06-14T00:00:00Z",
     updatedAt: "2026-06-14T00:00:00Z"
@@ -493,8 +492,8 @@ function toolDefinition() {
 function personalSkill() {
   return {
     id: "skill-1",
-    tenantId: "tenant-a",
-    ownerId: "admin-a",
+    ownerScopeId: "personal",
+    ownerId: "owner-a",
     name: "answer-review",
     description: "Review generated answers",
     version: "1.0.0",

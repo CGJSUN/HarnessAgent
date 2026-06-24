@@ -1,6 +1,6 @@
 package com.harnessagent.orchestration.application;
 
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -15,22 +15,22 @@ public class SupervisorRouter {
     private static final double MIN_CONFIDENCE = 0.5d;
 
     public RouteDecision route(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             String taskIntent,
             List<ExpertAgentDefinition> candidates) {
         return route(principal, taskIntent, Map.of(), candidates);
     }
 
     public RouteDecision route(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             String taskIntent,
             Map<String, Object> context,
             List<ExpertAgentDefinition> candidates) {
         List<ExpertAgentDefinition> permitted = candidates.stream()
                 .filter(ExpertAgentDefinition::approved)
                 .filter(ExpertAgentDefinition::enabled)
-                .filter(agent -> agent.requiredRoles().isEmpty()
-                        || agent.requiredRoles().stream().anyMatch(principal.roles()::contains))
+                .filter(agent -> agent.allowedOwnerIds().isEmpty()
+                        || agent.allowedOwnerIds().contains(principal.ownerId()))
                 .toList();
         ExpertAgentDefinition selected = permitted.stream()
                 .max(Comparator.comparing(agent -> score(agent, taskIntent, context)))

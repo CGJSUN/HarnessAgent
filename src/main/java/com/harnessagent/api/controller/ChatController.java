@@ -10,7 +10,7 @@ import com.harnessagent.chat.domain.ChatCommand;
 import com.harnessagent.chat.domain.ChatResult;
 import com.harnessagent.chat.application.ChatService;
 import com.harnessagent.rag.domain.KnowledgeCitation;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
@@ -78,21 +78,15 @@ public class ChatController {
     }
 
     private ChatCommand toCommand(Map<String, String> headers, ChatRequest request) {
-        SecurityPrincipal principal = identityResolver.resolve(
+        OwnerPrincipal principal = identityResolver.resolve(
                 headers,
-                request.tenantId(),
-                request.userId(),
-                request.roles(),
-                request.departments());
-        return new ChatCommand(
-                principal.tenantId(),
-                principal.userId(),
+                request.ownerId());
+        return ChatCommand.forOwner(
+                principal.ownerId(),
                 request.agentId(),
                 request.sessionId(),
                 request.message(),
                 request.knowledgeEnabled(),
-                principal.departments(),
-                principal.roles(),
                 request.knowledgeLimit());
     }
 

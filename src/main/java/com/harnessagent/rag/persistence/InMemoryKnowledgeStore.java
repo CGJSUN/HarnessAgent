@@ -36,9 +36,9 @@ public class InMemoryKnowledgeStore implements KnowledgeStore {
     }
 
     @Override
-    public List<KnowledgeSource> listSources(String tenantId) {
+    public List<KnowledgeSource> listSources(String ownerScopeId) {
         return sources.values().stream()
-                .filter(source -> source.tenantId().equals(tenantId))
+                .filter(source -> source.ownerScopeId().equals(ownerScopeId))
                 .sorted(Comparator.comparing(KnowledgeSource::updatedAt).reversed())
                 .toList();
     }
@@ -49,10 +49,10 @@ public class InMemoryKnowledgeStore implements KnowledgeStore {
     }
 
     @Override
-    public List<KnowledgeChunk> listChunks(String tenantId) {
+    public List<KnowledgeChunk> listChunks(String ownerScopeId) {
         return chunksBySource.values().stream()
                 .flatMap(List::stream)
-                .filter(chunk -> chunk.tenantId().equals(tenantId))
+                .filter(chunk -> chunk.ownerScopeId().equals(ownerScopeId))
                 .toList();
     }
 
@@ -67,10 +67,10 @@ public class InMemoryKnowledgeStore implements KnowledgeStore {
     }
 
     @Override
-    public List<RagMetric> listMetrics(String tenantId) {
+    public List<RagMetric> listMetrics(String ownerScopeId) {
         synchronized (metrics) {
             return metrics.stream()
-                    .filter(metric -> metric.tenantId().equals(tenantId))
+                    .filter(metric -> metric.ownerScopeId().equals(ownerScopeId))
                     .toList();
         }
     }
@@ -81,10 +81,10 @@ public class InMemoryKnowledgeStore implements KnowledgeStore {
     }
 
     @Override
-    public List<RagFeedback> listFeedback(String tenantId) {
+    public List<RagFeedback> listFeedback(String ownerScopeId) {
         synchronized (feedback) {
             return feedback.stream()
-                    .filter(item -> item.tenantId().equals(tenantId))
+                    .filter(item -> item.ownerScopeId().equals(ownerScopeId))
                     .toList();
         }
     }
@@ -101,9 +101,9 @@ public class InMemoryKnowledgeStore implements KnowledgeStore {
     }
 
     @Override
-    public List<PersonalMemoryRecord> listMemories(String tenantId, String ownerId, String agentId) {
+    public List<PersonalMemoryRecord> listMemories(String ownerScopeId, String ownerId, String agentId) {
         return memories.values().stream()
-                .filter(memory -> memory.tenantId().equals(tenantId))
+                .filter(memory -> memory.ownerScopeId().equals(ownerScopeId))
                 .filter(memory -> memory.ownerId().equals(ownerId))
                 .filter(memory -> memory.agentId().equals(agentId))
                 .sorted(Comparator.comparing(PersonalMemoryRecord::updatedAt).reversed())

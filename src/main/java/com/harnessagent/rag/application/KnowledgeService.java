@@ -18,7 +18,7 @@ import com.harnessagent.rag.domain.KnowledgeSourceType;
 import com.harnessagent.rag.domain.KnowledgeVisibility;
 import com.harnessagent.rag.domain.RagFeedback;
 import com.harnessagent.rag.domain.RagMetric;
-import com.harnessagent.rag.domain.RetrievalPrincipal;
+import com.harnessagent.rag.domain.OwnerRetrievalPrincipal;
 import com.harnessagent.rag.domain.RetrievedKnowledge;
 import com.harnessagent.rag.persistence.KnowledgeStore;
 import com.harnessagent.rag.retrieval.KnowledgeRetrievalResult;
@@ -50,15 +50,13 @@ public class KnowledgeService {
         Instant now = Instant.now();
         KnowledgeSource source = new KnowledgeSource(
                 UUID.randomUUID().toString(),
-                registration.tenantId().trim(),
+                registration.ownerScopeId().trim(),
                 registration.ownerId().trim(),
                 registration.agentId().trim(),
                 registration.title().trim(),
                 defaultString(registration.version(), "v1"),
                 registration.visibility() == null ? KnowledgeVisibility.RESTRICTED : registration.visibility(),
-                safeSet(registration.allowedDepartments()),
-                safeSet(registration.allowedRoles()),
-                safeSet(registration.allowedUsers()),
+                safeSet(registration.allowedOwnerIds()),
                 defaultString(registration.updatePolicy(), "manual"),
                 registration.sourceType() == null ? KnowledgeSourceType.INLINE_TEXT : registration.sourceType(),
                 defaultString(registration.sourceUri(), ""),
@@ -69,8 +67,9 @@ public class KnowledgeService {
                 now);
         KnowledgeSource saved = store.saveSource(source);
         log.info(
-                "rag source registered tenantId={} sourceId={} visibility={} status={}",
-                saved.tenantId(),
+                "rag source registered ownerHash={} agentId={} sourceId={} visibility={} status={}",
+                SafeLogFields.owner(saved.ownerId()),
+                saved.agentId(),
                 saved.id(),
                 saved.visibility(),
                 saved.status());
@@ -90,7 +89,7 @@ public class KnowledgeService {
                 .mapToObj(index -> new KnowledgeChunk(
                         source.id() + ":" + index,
                         source.id(),
-                        source.tenantId(),
+                        source.ownerScopeId(),
                         source.title(),
                         source.version(),
                         index,
@@ -102,14 +101,15 @@ public class KnowledgeService {
         store.saveChunks(source.id(), chunks);
         KnowledgeSource indexed = store.saveSource(source.withIndexStatus(KnowledgeIndexStatus.INDEXED, Instant.now()));
         log.info(
-                "rag document ingested tenantId={} sourceId={} chunkCount={}",
-                source.tenantId(),
+                "rag document ingested ownerHash={} agentId={} sourceId={} chunkCount={}",
+                SafeLogFields.owner(source.ownerId()),
+                source.agentId(),
                 source.id(),
                 chunks.size());
         return indexed;
     }
 
-    public KnowledgeRetrievalResult retrieve(RetrievalPrincipal principal, String query, int limit) {
+    public KnowledgeRetrievalResult retrieve(OwnerRetrievalPrincipal principal, String query, int limit) {
         validatePrincipal(principal);
         if (query == null || query.isBlank()) {
             throw new IllegalArgumentException("query is required");
@@ -119,16 +119,15 @@ public class KnowledgeService {
         if (queryTokens.isEmpty()) {
             recordMetric(principal, query, false, 0, 0, "empty_query_tokens");
             log.warn(
-                    "rag no_answer tenantId={} userHash={} reason={} candidateCount={} permittedCount={}",
-                    principal.tenantId(),
-                    SafeLogFields.user(principal.userId()),
+                    "rag no_answer ownerHash={} reason={} candidateCount={} permittedCount={}",
+                    SafeLogFields.owner(principal.ownerId()),
                     "empty_query_tokens",
                     0,
                     0);
             return KnowledgeRetrievalResult.noAnswer("无法从当前可用知识中确定答案。");
         }
 
-        List<KnowledgeChunk> tenantChunks = store.listChunks(principal.tenantId());
+        List<KnowledgeChunk> tenantChunks = store.listChunks(principal.scopeId());
         List<ScoredChunk> candidates = tenantChunks.stream()
                 .map(chunk -> score(chunk, queryTokens))
                 .filter(scored -> scored.score() > 0)
@@ -140,9 +139,8 @@ public class KnowledgeService {
                 .map(ScoredChunk::toRetrievedKnowledge)
                 .toList();
         log.debug(
-                "rag retrieval filtered tenantId={} userHash={} candidateCount={} permittedCount={} limit={}",
-                principal.tenantId(),
-                SafeLogFields.user(principal.userId()),
+                "rag retrieval filtered ownerHash={} candidateCount={} permittedCount={} limit={}",
+                SafeLogFields.owner(principal.ownerId()),
                 candidates.size(),
                 permitted.size(),
                 effectiveLimit);
@@ -157,9 +155,8 @@ public class KnowledgeService {
                 hit ? null : "no_permitted_evidence");
         if (!hit) {
             log.warn(
-                    "rag no_answer tenantId={} userHash={} reason={} candidateCount={} permittedCount={}",
-                    principal.tenantId(),
-                    SafeLogFields.user(principal.userId()),
+                    "rag no_answer ownerHash={} reason={} candidateCount={} permittedCount={}",
+                    SafeLogFields.owner(principal.ownerId()),
                     "no_permitted_evidence",
                     candidates.size(),
                     permitted.size());
@@ -174,7 +171,8 @@ public class KnowledgeService {
         store.removeChunks(sourceId);
         KnowledgeSource revoked = store.saveSource(source.withStatus(KnowledgeSourceStatus.REVOKED)
                 .withIndexStatus(KnowledgeIndexStatus.DELETED, Instant.now()));
-        log.info("rag source revoked tenantId={} sourceId={}", revoked.tenantId(), revoked.id());
+        log.info("rag source revoked ownerHash={} agentId={} sourceId={}",
+                SafeLogFields.owner(revoked.ownerId()), revoked.agentId(), revoked.id());
         return revoked;
     }
 
@@ -184,50 +182,50 @@ public class KnowledgeService {
         store.removeChunks(sourceId);
         KnowledgeSource deleted = store.saveSource(source.withStatus(KnowledgeSourceStatus.DELETED)
                 .withIndexStatus(KnowledgeIndexStatus.DELETED, Instant.now()));
-        log.info("rag source deleted tenantId={} sourceId={}", deleted.tenantId(), deleted.id());
+        log.info("rag source deleted ownerHash={} agentId={} sourceId={}",
+                SafeLogFields.owner(deleted.ownerId()), deleted.agentId(), deleted.id());
         return deleted;
     }
 
-    public List<KnowledgeSource> listSources(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("tenantId is required");
+    public List<KnowledgeSource> listSources(String ownerScopeId) {
+        if (ownerScopeId == null || ownerScopeId.isBlank()) {
+            throw new IllegalArgumentException("owner scope is required");
         }
-        return store.listSources(tenantId.trim());
+        return store.listSources(ownerScopeId.trim());
     }
 
-    public List<RagMetric> listMetrics(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("tenantId is required");
+    public List<RagMetric> listMetrics(String ownerScopeId) {
+        if (ownerScopeId == null || ownerScopeId.isBlank()) {
+            throw new IllegalArgumentException("owner scope is required");
         }
-        return store.listMetrics(tenantId.trim());
+        return store.listMetrics(ownerScopeId.trim());
     }
 
     public RagFeedback recordFeedback(
-            String tenantId, String userId, String query, boolean helpful, String comment) {
-        require(tenantId, "tenantId");
-        require(userId, "userId");
+            String ownerScopeId, String ownerId, String query, boolean helpful, String comment) {
+        require(ownerScopeId, "ownerScopeId");
+        require(ownerId, "ownerId");
         require(query, "query");
         RagFeedback feedback = new RagFeedback(
-                tenantId.trim(),
-                userId.trim(),
+                ownerScopeId.trim(),
+                ownerId.trim(),
                 query.trim(),
                 helpful,
                 comment == null ? "" : comment.trim(),
                 Instant.now());
         store.recordFeedback(feedback);
         log.info(
-                "rag feedback recorded tenantId={} userHash={} helpful={}",
-                tenantId.trim(),
-                SafeLogFields.user(userId),
+                "rag feedback recorded ownerHash={} helpful={}",
+                SafeLogFields.owner(ownerId),
                 helpful);
         return feedback;
     }
 
-    public List<RagFeedback> listFeedback(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("tenantId is required");
+    public List<RagFeedback> listFeedback(String ownerScopeId) {
+        if (ownerScopeId == null || ownerScopeId.isBlank()) {
+            throw new IllegalArgumentException("owner scope is required");
         }
-        return store.listFeedback(tenantId.trim());
+        return store.listFeedback(ownerScopeId.trim());
     }
 
     private ScoredChunk score(KnowledgeChunk chunk, Set<String> queryTokens) {
@@ -245,30 +243,28 @@ public class KnowledgeService {
                 vectorScore);
     }
 
-    private boolean isPermitted(RetrievalPrincipal principal, String sourceId) {
+    private boolean isPermitted(OwnerRetrievalPrincipal principal, String sourceId) {
         // Permission filtering happens before citation construction, so callers never see inaccessible evidence.
         return store.findSource(sourceId)
                 .filter(source -> source.status() == KnowledgeSourceStatus.ACTIVE)
-                .filter(source -> source.tenantId().equals(principal.tenantId()))
+                .filter(source -> source.ownerScopeId().equals(principal.scopeId()))
                 .filter(source -> source.agentId().isBlank() || source.agentId().equals(principal.agentId()))
                 .filter(source -> source.visibility() == KnowledgeVisibility.PUBLIC
-                        || source.ownerId().equals(principal.userId())
-                        || source.allowedUsers().contains(principal.userId())
-                        || intersects(source.allowedDepartments(), principal.departments())
-                        || intersects(source.allowedRoles(), principal.roles()))
+                        || source.ownerId().equals(principal.ownerId())
+                        || source.allowedOwnerIds().contains(principal.ownerId()))
                 .isPresent();
     }
 
     private void recordMetric(
-            RetrievalPrincipal principal,
+            OwnerRetrievalPrincipal principal,
             String query,
             boolean hit,
             int candidateCount,
             int permittedCount,
             String failureReason) {
         store.recordMetric(new RagMetric(
-                principal.tenantId(),
-                principal.userId(),
+                principal.scopeId(),
+                principal.ownerId(),
                 query,
                 hit,
                 candidateCount,
@@ -281,30 +277,23 @@ public class KnowledgeService {
         if (registration == null) {
             throw new IllegalArgumentException("source is required");
         }
-        require(registration.tenantId(), "tenantId");
+        require(registration.ownerScopeId(), "ownerScopeId");
         require(registration.ownerId(), "ownerId");
         require(registration.title(), "title");
     }
 
-    private static void validatePrincipal(RetrievalPrincipal principal) {
+    private static void validatePrincipal(OwnerRetrievalPrincipal principal) {
         if (principal == null) {
             throw new IllegalArgumentException("principal is required");
         }
-        require(principal.tenantId(), "tenantId");
-        require(principal.userId(), "userId");
+        require(principal.scopeId(), "ownerScopeId");
+        require(principal.ownerId(), "ownerId");
     }
 
     private static void require(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " is required");
         }
-    }
-
-    private static boolean intersects(Set<String> first, Set<String> second) {
-        if (first == null || second == null || first.isEmpty() || second.isEmpty()) {
-            return false;
-        }
-        return first.stream().anyMatch(second::contains);
     }
 
     private static Set<String> safeSet(Set<String> input) {

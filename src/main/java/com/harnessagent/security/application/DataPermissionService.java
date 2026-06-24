@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import com.harnessagent.security.domain.Permission;
 import com.harnessagent.security.domain.ProtectedResource;
-import com.harnessagent.security.domain.SecurityPrincipal;
+import com.harnessagent.security.domain.OwnerPrincipal;
 
 @Service
 public class DataPermissionService {
@@ -20,7 +20,7 @@ public class DataPermissionService {
     }
 
     public List<ProtectedResource> filterVisible(
-            SecurityPrincipal principal,
+            OwnerPrincipal principal,
             List<ProtectedResource> resources,
             Permission permission) {
         if (resources == null || resources.isEmpty()) {
@@ -31,9 +31,8 @@ public class DataPermissionService {
                 .toList();
         if (visible.size() < resources.size()) {
             log.debug(
-                    "security permission filtered tenantId={} userHash={} permission={} candidateCount={} permittedCount={}",
-                    principal.tenantId(),
-                    SafeLogFields.user(principal.userId()),
+                    "security permission filtered ownerHash={} permission={} candidateCount={} permittedCount={}",
+                    SafeLogFields.owner(principal.ownerId()),
                     permission,
                     resources.size(),
                     visible.size());

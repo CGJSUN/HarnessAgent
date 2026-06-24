@@ -5,15 +5,15 @@ import com.harnessagent.api.request.SetEnabledRequest;
 import com.harnessagent.api.request.UpdateAgentConfigRequest;
 import com.harnessagent.api.request.UpdatePromptRequest;
 import com.harnessagent.console.view.AgentManagementView;
-import com.harnessagent.console.application.AuditSearchFilter;
-import com.harnessagent.console.view.ConsoleAuditResult;
+import com.harnessagent.console.application.ActivitySearchFilter;
+import com.harnessagent.console.view.ConsoleActivityResult;
 import com.harnessagent.console.application.ConsoleService;
 import com.harnessagent.console.view.CostUsageReport;
 import com.harnessagent.console.view.KnowledgeSourceView;
 import com.harnessagent.console.view.OperationalMetricSummary;
 import com.harnessagent.console.view.UserConsoleView;
-import com.harnessagent.security.domain.SecurityPrincipal;
-import com.harnessagent.security.domain.SkillVersion;
+import com.harnessagent.security.domain.OwnerPrincipal;
+import com.harnessagent.skill.domain.PersonalSkillMetadata;
 import com.harnessagent.tooling.domain.ToolDefinition;
 import java.time.Instant;
 import java.util.List;
@@ -43,40 +43,36 @@ public class ConsoleController {
     @GetMapping("/user")
     public UserConsoleView userConsole(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam String agentId,
             @RequestParam(required = false) String sessionId) {
-        return consoleService.userConsole(resolve(headers, tenantId, userId), agentId, sessionId);
+        return consoleService.userConsole(resolve(headers, ownerId), agentId, sessionId);
     }
 
     @GetMapping("/agents")
     public List<AgentManagementView> listAgents(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return consoleService.listAgents(resolve(headers, tenantId, userId));
+            @RequestParam String ownerId) {
+        return consoleService.listAgents(resolve(headers, ownerId));
     }
 
     @PatchMapping("/agents/{agentId}/prompt")
     public AgentManagementView updateAgentPrompt(
             @RequestHeader Map<String, String> headers,
             @PathVariable String agentId,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestBody UpdatePromptRequest request) {
-        return consoleService.updateAgentPrompt(resolve(headers, tenantId, userId), agentId, request.systemPrompt());
+        return consoleService.updateAgentPrompt(resolve(headers, ownerId), agentId, request.systemPrompt());
     }
 
     @PatchMapping("/agents/{agentId}/config")
     public AgentManagementView updateAgentConfig(
             @RequestHeader Map<String, String> headers,
             @PathVariable String agentId,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestBody UpdateAgentConfigRequest request) {
         return consoleService.updateAgentConfig(
-                resolve(headers, tenantId, userId),
+                resolve(headers, ownerId),
                 agentId,
                 request.modelProvider(),
                 request.modelName(),
@@ -88,109 +84,74 @@ public class ConsoleController {
     @GetMapping("/tools")
     public List<ToolDefinition> listTools(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return consoleService.listTools(resolve(headers, tenantId, userId));
+            @RequestParam String ownerId) {
+        return consoleService.listTools(resolve(headers, ownerId));
     }
 
     @PatchMapping("/tools/{toolId}/enabled")
     public ToolDefinition setToolEnabled(
             @RequestHeader Map<String, String> headers,
             @PathVariable String toolId,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestBody SetEnabledRequest request) {
-        return consoleService.setToolEnabled(resolve(headers, tenantId, userId), toolId, request.enabled());
+        return consoleService.setToolEnabled(resolve(headers, ownerId), toolId, request.enabled());
     }
 
     @GetMapping("/knowledge")
     public List<KnowledgeSourceView> listKnowledge(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return consoleService.listKnowledge(resolve(headers, tenantId, userId));
+            @RequestParam String ownerId) {
+        return consoleService.listKnowledge(resolve(headers, ownerId));
     }
 
     @PatchMapping("/knowledge/{sourceId}/revoke")
     public KnowledgeSourceView revokeKnowledge(
             @RequestHeader Map<String, String> headers,
             @PathVariable String sourceId,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return KnowledgeSourceView.from(consoleService.revokeKnowledge(resolve(headers, tenantId, userId), sourceId));
+            @RequestParam String ownerId) {
+        return KnowledgeSourceView.from(consoleService.revokeKnowledge(resolve(headers, ownerId), sourceId));
     }
 
     @GetMapping("/skills")
-    public List<SkillVersion> listSkills(
+    public List<PersonalSkillMetadata> listSkills(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam(required = false) String skillName) {
-        return consoleService.listSkills(resolve(headers, tenantId, userId), skillName);
-    }
-
-    @PatchMapping("/skills/{versionId}/approve")
-    public SkillVersion approveSkill(
-            @RequestHeader Map<String, String> headers,
-            @PathVariable String versionId,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return consoleService.approveSkill(resolve(headers, tenantId, userId), versionId);
-    }
-
-    @PatchMapping("/skills/{versionId}/publish")
-    public SkillVersion publishSkill(
-            @RequestHeader Map<String, String> headers,
-            @PathVariable String versionId,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return consoleService.publishSkill(resolve(headers, tenantId, userId), versionId);
-    }
-
-    @PatchMapping("/skills/{versionId}/disable")
-    public SkillVersion disableSkill(
-            @RequestHeader Map<String, String> headers,
-            @PathVariable String versionId,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return consoleService.disableSkill(resolve(headers, tenantId, userId), versionId);
+        return consoleService.listSkills(resolve(headers, ownerId), skillName);
     }
 
     @GetMapping("/metrics")
     public OperationalMetricSummary metrics(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId) {
-        return consoleService.metrics(resolve(headers, tenantId, userId));
+            @RequestParam String ownerId) {
+        return consoleService.metrics(resolve(headers, ownerId));
     }
 
     @GetMapping("/cost")
     public CostUsageReport cost(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam(required = false) String agentId,
             @RequestParam(required = false) String providerId) {
-        return consoleService.cost(resolve(headers, tenantId, userId), agentId, providerId);
+        return consoleService.cost(resolve(headers, ownerId), agentId, providerId);
     }
 
-    @GetMapping("/audit")
-    public ConsoleAuditResult audit(
+    @GetMapping("/activity")
+    public ConsoleActivityResult recordActivity(
             @RequestHeader Map<String, String> headers,
-            @RequestParam String tenantId,
-            @RequestParam String userId,
+            @RequestParam String ownerId,
             @RequestParam(required = false) String targetUserId,
             @RequestParam(required = false) String sessionId,
             @RequestParam(required = false) String resourceId,
             @RequestParam(required = false) String action,
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to) {
-        return consoleService.auditSearch(
-                resolve(headers, tenantId, userId),
-                new AuditSearchFilter(targetUserId, sessionId, resourceId, action, from, to));
+        return consoleService.activitySearch(
+                resolve(headers, ownerId),
+                new ActivitySearchFilter(targetUserId, sessionId, resourceId, action, from, to));
     }
 
-    private SecurityPrincipal resolve(Map<String, String> headers, String tenantId, String userId) {
-        return identityResolver.resolve(headers, tenantId, userId, Set.of(), Set.of());
+    private OwnerPrincipal resolve(Map<String, String> headers, String ownerId) {
+        return identityResolver.resolve(headers, ownerId);
     }
 }

@@ -9,7 +9,6 @@ import java.util.Set;
 
 public record PersonalSkillResponse(
         String id,
-        String tenantId,
         String ownerId,
         String name,
         String description,
@@ -26,7 +25,6 @@ public record PersonalSkillResponse(
     public static PersonalSkillResponse from(PersonalSkillMetadata metadata) {
         return new PersonalSkillResponse(
                 metadata.id(),
-                metadata.tenantId(),
                 metadata.ownerId(),
                 metadata.name(),
                 metadata.description(),
