@@ -47,6 +47,7 @@ npm run dev
 
 ## 文档入口
 
+- [docs/local-run-debugging.md](docs/local-run-debugging.md)：服务端和前端本地运行、联调和调试步骤。
 - [docs/start.md](docs/start.md)：个人版目标、架构和本地使用指南。
 - 迁移盘点文档：历史概念迁移清单和处理规则。
 - [docs/agentscope-java-v2-coverage.md](docs/agentscope-java-v2-coverage.md)：AgentScope Java v2 官方文档覆盖矩阵。
