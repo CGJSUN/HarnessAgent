@@ -10,6 +10,7 @@
 /dataSources.local.xml
 
 .codex
+.worktrees
 .idea
 .harness-agent
 target
